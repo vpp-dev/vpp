@@ -54,7 +54,7 @@ endif
 
 .PHONY: help bootstrap wipe wipe-release build build-release rebuild rebuild-release
 .PHONY: run run-release debug debug-release build-vat run-vat pkg-deb pkg-rpm
-.PHONY: ctags cscope plugins plugins-release build-vpp-api
+.PHONY: ctags cscope doxygen wipe-doxygen plugins plugins-release test retest
 
 help:
 	@echo "Make Targets:"
@@ -178,6 +178,16 @@ plugins-release: $(BR)/.bootstrap.ok
 
 build-vpp-api: $(BR)/.bootstrap.ok
 	$(call make,$(PLATFORM)_debug,vpp-api-install)
+
+test:
+ifeq ($(OS_ID),ubuntu)
+	@sudo -E apt-get $(CONFIRM) $(FORCE) install python-dev python-scapy
+endif
+	@make -C $(BR) PLATFORM=vpp_lite TAG=vpp_lite vpp-install vpp-api-test-install
+	@sudo make -C test \
+	  VPP_TEST_BIN=$(BR)/install-vpp_lite-native/vpp/bin/vpp \
+	  VPP_TEST_API_TEST_BIN=$(BR)/install-vpp_lite-native/vpp-api-test/bin/vpp_api_test \
+	  V=$(V)
 
 STARTUP_DIR ?= $(PWD)
 ifeq ("$(wildcard $(STARTUP_CONF))","")
