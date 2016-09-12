@@ -1,21 +1,34 @@
-from distutils.core import setup, Extension
+#
+# Copyright (c) 2016 Cisco and/or its affiliates.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at:
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-module1 = Extension('vpp_api',
-                    define_macros = [('MAJOR_VERSION', '1'),
-                                     ('MINOR_VERSION', '0')],
-                    include_dirs = ['pneum'],
-                    libraries = ['pneum'],
-                    library_dirs = ['../../build-root/install-vpp_debug-native/vpp-api/lib64'],
-                    sources = ['vpp_papi/pneum_wrap.c'])
+try:
+    from setuptools import setup, Extension
+except ImportError:
+    from distutils.core import setup, Extension
 
 setup (name = 'vpp_papi',
-       version = '1.0',
+       version = '1.2',
        description = 'VPP Python binding',
        author = 'Ole Troan',
        author_email = 'ot@cisco.com',
-       #url = 'https://docs.python.org/extending/building',
+       test_suite = 'tests',
        packages=['vpp_papi'],
-       long_description = '''
-VPP Python language binding.
-''',
-       ext_modules = [module1])
+       ext_modules = [
+           Extension(
+               'vpp_api',
+               sources = ['vpp_papi/pneum_wrap.c'],
+               libraries = ['pneum'],
+           )],
+       long_description = '''VPP Python language binding.''',
+)

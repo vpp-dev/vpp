@@ -13,37 +13,53 @@
 
 AUTOMAKE_OPTIONS = foreign subdir-objects
 ACLOCAL_AMFLAGS = -I m4
-AM_CFLAGS = -Wall 
+AM_CFLAGS = -Wall
 
 BUILT_SOURCES =
-bin_PROGRAMS = 
-CLEANFILES = 
-lib_LTLIBRARIES = 
+bin_PROGRAMS =
+CLEANFILES =
+lib_LTLIBRARIES =
 noinst_PROGRAMS = test_pneum
 nobase_include_HEADERS = pneum/pneum.h
 
 #
-# Python binding
+# Python / C extension
 #
 lib_LTLIBRARIES += libpneum.la
 libpneum_la_SOURCES = pneum/pneum.c
-libpneum_la_LIBADD = -lvlibmemoryclient -lvlibapi -lsvm -lvppinfra -lpthread -lm -lrt
+libpneum_la_LIBADD = -lvlibmemoryclient -lvlibapi -lsvm -lvppinfra -lpthread \
+                     -lm -lrt
 libpneum_la_LDFLAGS = -module
 libpneum_la_CPPFLAGS =
 
-BUILT_SOURCES += vpp_papi.py
+#
+# Core VPP API
+#
+$(srcdir)/vpp_papi/vpe.py: $(prefix)/../vpp/vpp-api/vpe.api
+	$(info Creating Python binding for $@)
+	$(CC) $(CPPFLAGS) -E -P -C -x c $<	\
+	| vppapigen --input - --python -	\
+	| pyvppapigen.py --input - > $(srcdir)/vpp_papi/$(notdir $@)
 
-vpp_papi.py: $(prefix)/../vpp/vpp-api/vpe.api pneum/api-gen.py
-	@echo "  PYTHON API";                                            	  \
-	$(CC) $(CPPFLAGS) -E -P -C -x c $<			                  \
-	| vppapigen --input - --python defs_$@;                                   \
-	echo "#include <vpp-api/vpe_msg_enum.h>"                                      \
-	| $(CC) $(CPPFLAGS) -E -P -x c - | grep VL_API                            \
-	| @srcdir@/pneum/api-gen.py -i defs_$@ > @srcdir@/vpp_papi/$@
+$(srcdir)/vpp_papi/memclnt.py: $(prefix)/../vlib-api/vlibmemory/memclnt.api
+	$(info Creating Python binding for $@)
+	$(CC) $(CPPFLAGS) -E -P -C -x c $<	\
+	| vppapigen --input - --python -	\
+	| pyvppapigen.py --input - > $(srcdir)/vpp_papi/$(notdir $@)
+
+# TODO: Support both Python 2 and 3.
+install-exec-local: $(srcdir)/vpp_papi/vpe.py $(srcdir)/vpp_papi/memclnt.py
+	cd $(srcdir);							\
+	mkdir -p $(prefix)/lib/python2.7/site-packages; 		\
+	PYTHONUSERBASE=$(prefix)					\
+	python setup.py build_ext -L $(prefix)/lib64 install --user
 
 #
 # Test client
 #
 noinst_PROGRAMS += test_pneum
 test_pneum_SOURCES = pneum/pneum.c pneum/test_pneum.c
-test_pneum_LDADD = -lvlibmemoryclient -lvlibapi -lsvm -lvppinfra -lpthread -lm -lrt
+test_pneum_LDADD = -lvlibmemoryclient -lvlibapi -lsvm -lvppinfra -lpthread \
+                   -lm -lrt
+
+
