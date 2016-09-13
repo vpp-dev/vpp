@@ -4,7 +4,7 @@ import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
 import unittest
-from framework import VppTestCase, ColoredTextTestRunner
+from framework import *
 from scapy.all import *
 
 
@@ -94,4 +94,4 @@ class TestVxlan(VppTestCase):
         self.assertEqual(str(pkt[Raw]), vxlan_header + str(payload))
 
 if __name__ == '__main__':
-    unittest.main(testRunner = ColoredTextTestRunner)
+    unittest.main(testRunner = VppTestRunner)

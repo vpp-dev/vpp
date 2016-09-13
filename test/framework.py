@@ -134,7 +134,7 @@ class VppTestCase(unittest.TestCase):
                                'ARP requests')
 
 
-class ColoredTextTestResult(unittest.TestResult):
+class VppTestResult(unittest.TestResult):
     RED = '\033[91m'
     GREEN = '\033[92m'
     END = '\033[0m'
@@ -195,9 +195,9 @@ class ColoredTextTestResult(unittest.TestResult):
             self.stream.writeln("%s" % err)
 
 
-class ColoredTextTestRunner(unittest.TextTestRunner):
-    resultclass = ColoredTextTestResult
+class VppTestRunner(unittest.TextTestRunner):
+    resultclass = VppTestResult
 
     def run(self, test):
         print "Running tests using custom test runner" # debug message
-        return super(ColoredTextTestRunner, self).run(test)
+        return super(VppTestRunner, self).run(test)
