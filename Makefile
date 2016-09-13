@@ -189,6 +189,12 @@ endif
 	  VPP_TEST_API_TEST_BIN=$(BR)/install-vpp_lite-native/vpp-api-test/bin/vpp_api_test \
 	  V=$(V)
 
+retest:
+	@sudo make -C test \
+	  VPP_TEST_BIN=$(BR)/install-vpp_lite-native/vpp/bin/vpp \
+	  VPP_TEST_API_TEST_BIN=$(BR)/install-vpp_lite-native/vpp-api-test/bin/vpp_api_test \
+	  V=$(V)
+
 STARTUP_DIR ?= $(PWD)
 ifeq ("$(wildcard $(STARTUP_CONF))","")
 define run

@@ -1,12 +1,11 @@
 #!/usr/bin/env python
 
-import vpp_test
 import os
 import scapy
 import socket
 import ipaddress
 from scapy.all import *
-from vpp_test import *
+from vpp_test_old import *
 
 MY_MACS = []
 MY_IP6S = []
