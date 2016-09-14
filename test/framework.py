@@ -22,6 +22,8 @@ class VppTestCase(unittest.TestCase):
         cls.END = '\033[0m'
         cls.vpp_bin = os.getenv('VPP_TEST_BIN', "vpp")
         cls.vpp_api_test_bin = os.getenv ("VPP_TEST_API_TEST_BIN", "vpp-api-test")
+        cls.vpp_cmdline = [cls.vpp_bin, "unix", "nodaemon", "api-segment", "{", "prefix", "unittest", "}"]
+        cls.vpp_api_test_cmdline = [cls.vpp_api_test_bin, "chroot", "prefix", "unittest"]
         try:
             cls.verbose = int(os.getenv("V", 0))
         except:
@@ -40,14 +42,17 @@ class VppTestCase(unittest.TestCase):
         print "=================================================================="
         print cls.YELLOW + getdoc(cls) + cls.END
         print "=================================================================="
-        os.system("sudo rm -f /dev/shm/global_vm")
-        os.system("sudo rm -f /dev/shm/vpe-api")
-        os.system("sudo rm -f /dev/shm/db")
-        cls.vpp = subprocess.Popen([cls.vpp_bin, "unix", "nodaemon"], stderr=subprocess.PIPE)
+        os.system("sudo rm -f /dev/shm/unittest-global_vm")
+        os.system("sudo rm -f /dev/shm/unittest-vpe-api")
+        os.system("sudo rm -f /dev/shm/unittest-db")
+        cls.vpp = subprocess.Popen(cls.vpp_cmdline, stderr=subprocess.PIPE)
 
     @classmethod
     def quit(cls):
         cls.vpp.terminate()
+        os.system("sudo rm -f /dev/shm/unittest-global_vm")
+        os.system("sudo rm -f /dev/shm/unittest-vpe-api")
+        os.system("sudo rm -f /dev/shm/unittest-db")
 
     @classmethod
     def tearDownClass(cls):
@@ -60,7 +65,10 @@ class VppTestCase(unittest.TestCase):
 
     @classmethod
     def api(cls, s):
-        p = subprocess.Popen([cls.vpp_api_test_bin],stdout=subprocess.PIPE,stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        p = subprocess.Popen(cls.vpp_api_test_cmdline,
+                             stdout=subprocess.PIPE,
+                             stdin=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
         if cls.verbose > 0:
             print "API: " + cls.RED + s + cls.END
         p.stdin.write(s)
@@ -74,7 +82,10 @@ class VppTestCase(unittest.TestCase):
     def cli(cls, v, s):
         if cls.verbose < v:
             return
-        p = subprocess.Popen([cls.vpp_api_test_bin],stdout=subprocess.PIPE,stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        p = subprocess.Popen(cls.vpp_api_test_cmdline,
+                             stdout=subprocess.PIPE,
+                             stdin=subprocess.PIPE,
+                             stderr=subprocess.PIPE)
         if cls.verbose > 0:
             print "CLI: " + cls.RED + s + cls.END
         p.stdin.write('exec ' + s)
