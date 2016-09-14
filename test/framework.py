@@ -9,6 +9,7 @@ import time
 import subprocess
 from scapy.all import Ether, ARP, wrpcap, rdpcap
 import unittest
+from inspect import *
 
 
 class VppTestCase(unittest.TestCase):
@@ -36,6 +37,9 @@ class VppTestCase(unittest.TestCase):
         cls.VPP_MACS = []
         cls.VPP_IP4S = []
         cls.VPP_IP6S = []
+        print "=================================================================="
+        print cls.YELLOW + getdoc(cls) + cls.END
+        print "=================================================================="
         cls.vpp = subprocess.Popen([cls.vpp_bin, "unix", "nodaemon"], stderr=subprocess.PIPE)
 
     @classmethod
@@ -166,12 +170,8 @@ class VppTestResult(unittest.TestResult):
 
     def startTest(self, test):
         unittest.TestResult.startTest(self, test)
-        self.stream.write(self.getDescription(test))
-        self.stream.write(" ... ")
         if self.verbosity > 0:
-            self.stream.writeln()
-        else:
-            self.stream.flush()
+            self.stream.writeln(self.getDescription(test))
 
     def stopTest(self, test):
         unittest.TestResult.stopTest(self, test)
@@ -180,7 +180,7 @@ class VppTestResult(unittest.TestResult):
             self.stream.writeln("%-60s%s" % (self.getDescription(test), self.result_string))
             self.stream.writeln("------------------------------------------------------------------")
         else:
-            self.stream.writeln(self.result_string)
+            self.stream.writeln("%-60s%s" % (self.getDescription(test), self.result_string))
 
     def printErrors(self):
         self.stream.writeln()

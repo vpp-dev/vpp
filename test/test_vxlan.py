@@ -9,6 +9,7 @@ from scapy.all import *
 
 
 class TestVxlan(VppTestCase):
+    """ VXLAN Test Case """
 
     @classmethod
     def setUpClass(cls):
@@ -33,6 +34,7 @@ class TestVxlan(VppTestCase):
         self.cli(2, "show bridge-domain 1 detail")
 
     def test_decapBD(self):
+        """ VXLAN decaps path to BD """
         pkts = []
         payload = ( Ether(src='00:00:00:00:00:01', dst='00:00:00:00:00:02') /
                 IP(src='1.2.3.4', dst='4.3.2.1') /
@@ -62,9 +64,7 @@ class TestVxlan(VppTestCase):
         self.assertEqual(pkt[Raw], payload[Raw])
 
     def test_encapBD(self):
-        '''Packet coming from pg1 through BD to VTEP.
-        VXLAN encap is expected.
-        '''
+        """ VXLAN enncaps path from BD """
         pkts = []
         vxlan_header = '\x08\x00\x00\x00' + '\x00\x00\x01\x00'
         payload = ( Ether(src='00:00:00:00:00:01', dst='00:00:00:00:00:02') /
