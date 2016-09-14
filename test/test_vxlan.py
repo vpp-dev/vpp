@@ -15,18 +15,22 @@ class TestVxlan(VppTestCase):
     def setUpClass(cls):
         super(TestVxlan, cls).setUpClass()
 
-        # Create 2 intefaces
-        cls.create_interfaces([0,1])
-        # Configure IPv4 addressing on pg0
-        cls.config_ip4([0])
-        # Send ARP on pg0 inteface
-        cls.resolve_arp([0])
+        try:
+            # Create 2 intefaces
+            cls.create_interfaces([0,1])
+            # Configure IPv4 addressing on pg0
+            cls.config_ip4([0])
+            # Send ARP on pg0 inteface
+            cls.resolve_arp([0])
 
-        # Create VXLAN VTEP on pg0, and put pg0 and pg1 in BD
-        cls.api("vxlan_add_del_tunnel src %s dst %s vni 1" %
-                (cls.VPP_IP4S[0], cls.MY_IP4S[0]))
-        cls.api("sw_interface_set_l2_bridge vxlan_tunnel0 bd_id 1")
-        cls.api("sw_interface_set_l2_bridge pg1 bd_id 1")
+            # Create VXLAN VTEP on pg0, and put pg0 and pg1 in BD
+            cls.api("vxlan_add_del_tunnel src %s dst %s vni 1" %
+                    (cls.VPP_IP4S[0], cls.MY_IP4S[0]))
+            cls.api("sw_interface_set_l2_bridge vxlan_tunnel0 bd_id 1")
+            cls.api("sw_interface_set_l2_bridge pg1 bd_id 1")
+        except Exception as e:
+            super(TestVxlan, cls).tearDownClass()
+            raise e
 
     def tearDown(self):
         self.cli(2, "show int")
