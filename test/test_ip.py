@@ -16,7 +16,12 @@ class TestIPv4(VppTestCase):
         super(TestIPv4, cls).setUpClass()
 
         cls.num_ifs = 3
-        cls.create_links(cls.num_ifs)
+        # Create 2 intefaces
+        cls.create_interfaces(range(cls.num_ifs))
+        # Configure IPv4 addressing on pg0
+        cls.config_ip4(range(cls.num_ifs))
+        # Send ARP on pg0 inteface
+        cls.resolve_arp(range(cls.num_ifs))
 
     def tearDown(self):
         self.cli(2, "show int")

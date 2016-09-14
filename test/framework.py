@@ -91,41 +91,39 @@ class VppTestCase(unittest.TestCase):
         return output
 
     @classmethod
-    def resolve_arp(cls, port, ip):
-        cls.log("Sending ARP request for %s on port %u" % (ip, port))
-        arp_req = ( Ether(dst="ff:ff:ff:ff:ff:ff",src=cls.MY_MACS[port]) /
-                    ARP(op=ARP.who_has, pdst=ip,
-                        psrc=cls.MY_IP4S[port], hwsrc=cls.MY_MACS[port]))
-        cls.pg_arm(port, port, arp_req)
+    def resolve_arp(cls, args):
+        for i in args:
+            ip = cls.VPP_IP4S[i]
+            cls.log("Sending ARP request for %s on port %u" % (ip, i))
+            arp_req = ( Ether(dst="ff:ff:ff:ff:ff:ff",src=cls.MY_MACS[i]) /
+                        ARP(op=ARP.who_has, pdst=ip,
+                            psrc=cls.MY_IP4S[i], hwsrc=cls.MY_MACS[i]))
+            cls.pg_arm(i, i, arp_req)
 
-        cls.cli(2, "trace add pg-input 1")
-        cls.pg_send()
-        arp_reply = cls.pg_read_output(port)[0]
-        if  arp_reply[ARP].op == ARP.is_at:
-            cls.log("VPP pg%u MAC address is %s " % ( port, arp_reply[ARP].hwsrc))
-            return arp_reply[ARP].hwsrc
-        cli.log("No ARP received on port %u" % port)
+            cls.cli(2, "trace add pg-input 1")
+            cls.pg_send()
+            arp_reply = cls.pg_read_output(i)[0]
+            if  arp_reply[ARP].op == ARP.is_at:
+                cls.log("VPP pg%u MAC address is %s " % ( i, arp_reply[ARP].hwsrc))
+                cls.VPP_MACS[i] = arp_reply[ARP].hwsrc
+                return
+            cli.log("No ARP received on port %u" % i)
 
     @classmethod
-    def create_links(cls, num_if):
-        for i in range (0, num_if):
-            cls.MY_MACS[i] = "00:00:00:00:ff:%02x" % i
+    def config_ip4(cls, args):
+        for i in args:
             cls.MY_IP4S[i] = "172.16.%u.2" % i
             cls.VPP_IP4S[i] = "172.16.%u.1" % i
-            cls.log("My MAC address is %s, IPv4 address is %s" %
-                    (cls.MY_MACS[i], cls.MY_IP4S[i]))
-            cls.cli(0, "create packet-generator interface pg%u" % i)
-            cls.cli(0, "set interface state pg%u up" % i)
             cls.cli(0, "set interface ip address pg%u %s/24" %
                     (i, cls.VPP_IP4S[i]))
-
-        ###############################################################################
-        # Populate ARP table
-        #
-        ###############################################################################
-
-        for i in range (0, num_if):
-            cls.VPP_MACS[i] = cls.resolve_arp(i, cls.VPP_IP4S[i])
+            cls.log("My IPv4 address is %s" % (cls.MY_IP4S[i]))
+    @classmethod
+    def create_interfaces(cls, args):
+        for i in args:
+            cls.MY_MACS[i] = "00:00:00:00:ff:%02x" % i
+            cls.log("My MAC address is %s" % (cls.MY_MACS[i]))
+            cls.cli(0, "create packet-generator interface pg%u" % i)
+            cls.cli(0, "set interface state pg%u up" % i)
 
 class VppTestResult(unittest.TestResult):
     RED = '\033[91m'

@@ -15,7 +15,12 @@ class TestVxlan(VppTestCase):
     def setUpClass(cls):
         super(TestVxlan, cls).setUpClass()
 
-        cls.create_links(2)
+        # Create 2 intefaces
+        cls.create_interfaces([0,1])
+        # Configure IPv4 addressing on pg0
+        cls.config_ip4([0])
+        # Send ARP on pg0 inteface
+        cls.resolve_arp([0])
 
         # Create VXLAN VTEP on pg0, and put pg0 and pg1 in BD
         cls.cli(0, 'create vxlan tunnel src %s dst %s vni 1' %
