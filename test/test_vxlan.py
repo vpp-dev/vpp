@@ -23,10 +23,10 @@ class TestVxlan(VppTestCase):
         cls.resolve_arp([0])
 
         # Create VXLAN VTEP on pg0, and put pg0 and pg1 in BD
-        cls.cli(0, 'create vxlan tunnel src %s dst %s vni 1' %
+        cls.api("vxlan_add_del_tunnel src %s dst %s vni 1" %
                 (cls.VPP_IP4S[0], cls.MY_IP4S[0]))
-        cls.cli(0, 'set interface l2 bridge vxlan_tunnel0 1')
-        cls.cli(0, 'set interface l2 bridge pg1 1')
+        cls.api("sw_interface_set_l2_bridge vxlan_tunnel0 bd_id 1")
+        cls.api("sw_interface_set_l2_bridge pg1 bd_id 1")
 
     def tearDown(self):
         self.cli(2, "show int")
