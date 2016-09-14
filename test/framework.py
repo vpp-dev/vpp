@@ -40,6 +40,9 @@ class VppTestCase(unittest.TestCase):
         print "=================================================================="
         print cls.YELLOW + getdoc(cls) + cls.END
         print "=================================================================="
+        os.system("sudo rm -f /dev/shm/global_vm")
+        os.system("sudo rm -f /dev/shm/vpe-api")
+        os.system("sudo rm -f /dev/shm/db")
         cls.vpp = subprocess.Popen([cls.vpp_bin, "unix", "nodaemon"], stderr=subprocess.PIPE)
 
     @classmethod
@@ -54,6 +57,18 @@ class VppTestCase(unittest.TestCase):
     def log(cls, s):
         if cls.verbose > 0:
             print "LOG: " + cls.LPURPLE + s + cls.END
+
+    @classmethod
+    def api(cls, s):
+        p = subprocess.Popen([cls.vpp_api_test_bin],stdout=subprocess.PIPE,stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        if cls.verbose > 0:
+            print "API: " + cls.RED + s + cls.END
+        p.stdin.write(s)
+        out = p.communicate()[0]
+        out = out.replace("vat# ", "", 2)
+        if cls.verbose > 0:
+            if len (out) > 1:
+                print cls.YELLOW + out + cls.END
 
     @classmethod
     def cli(cls, v, s):
@@ -114,8 +129,8 @@ class VppTestCase(unittest.TestCase):
         for i in args:
             cls.MY_IP4S[i] = "172.16.%u.2" % i
             cls.VPP_IP4S[i] = "172.16.%u.1" % i
-            cls.cli(0, "set interface ip address pg%u %s/24" %
-                    (i, cls.VPP_IP4S[i]))
+            #cls.cli(0, "set interface ip address pg%u %s/24" % (i, cls.VPP_IP4S[i]))
+            cls.api("sw_interface_add_del_address pg%u %s/24" % (i, cls.VPP_IP4S[i]))
             cls.log("My IPv4 address is %s" % (cls.MY_IP4S[i]))
     @classmethod
     def create_interfaces(cls, args):
