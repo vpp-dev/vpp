@@ -91,6 +91,22 @@ class VppTestCase(unittest.TestCase):
         return output
 
     @classmethod
+    def resolve_arp(cls, port, ip):
+        cls.log("Sending ARP request for %s on port %u" % (ip, port))
+        arp_req = ( Ether(dst="ff:ff:ff:ff:ff:ff",src=cls.MY_MACS[port]) /
+                    ARP(op=ARP.who_has, pdst=ip,
+                        psrc=cls.MY_IP4S[port], hwsrc=cls.MY_MACS[port]))
+        cls.pg_arm(port, port, arp_req)
+
+        cls.cli(2, "trace add pg-input 1")
+        cls.pg_send()
+        arp_reply = rdpcap("/tmp/pg%u_out.pcap" % port)[0]
+        if  arp_reply[ARP].op == ARP.is_at:
+            cls.log("VPP pg%u MAC address is %s " % ( port, arp_reply[ARP].hwsrc))
+            return arp_reply[ARP].hwsrc
+        cli.log("No ARP received on port %u" % port)
+
+    @classmethod
     def create_links(cls, num_if):
         for i in range (0, num_if):
             cls.MY_MACS.append("00:00:00:00:ff:%02x" % i)
@@ -108,35 +124,8 @@ class VppTestCase(unittest.TestCase):
         #
         ###############################################################################
 
-        # Prepare ARP requests for all interfaces
         for i in range (0, num_if):
-            arp_req = ( Ether(dst="ff:ff:ff:ff:ff:ff",src=cls.MY_MACS[i]) /
-                        ARP(op=ARP.who_has, pdst=cls.VPP_IP4S[i],
-                            psrc=cls.MY_IP4S[i], hwsrc=cls.MY_MACS[i]))
-            cls.pg_arm(i, i, arp_req)
-
-        cls.cli(2, "trace add pg-input %u" % (num_if * 3))
-        cls.pg_send()
-        cls.cli(2, "show int")
-        cls.cli(2, "show trace")
-        cls.cli(2, "show hardware")
-        cls.cli(2, "show ip arp")
-        cls.cli(2, "show ip fib")
-        cls.cli(2, "show error")
-
-        # Process replies, store VPP's MAC addresses
-        ok = 0
-        for i in range (0, num_if):
-            arp_reply = rdpcap("/tmp/pg%u_out.pcap" % i)[0]
-            if  arp_reply[ARP].op == ARP.is_at:
-                ok += 1
-                cls.VPP_MACS.append(arp_reply[ARP].hwsrc)
-                cls.log("VPP pg%u MAC address is %s " % ( i, cls.VPP_MACS[i]))
-
-        if  ok != num_if:
-            raise RuntimeError('Number of ARP responses does not equal '
-                               'ARP requests')
-
+            cls.VPP_MACS.append(cls.resolve_arp(i, cls.VPP_IP4S[i]))
 
 class VppTestResult(unittest.TestResult):
     RED = '\033[91m'
@@ -171,7 +160,8 @@ class VppTestResult(unittest.TestResult):
     def startTest(self, test):
         unittest.TestResult.startTest(self, test)
         if self.verbosity > 0:
-            self.stream.writeln(self.getDescription(test))
+            self.stream.writeln("Starting " + self.getDescription(test) + " ...")
+            self.stream.writeln("------------------------------------------------------------------")
 
     def stopTest(self, test):
         unittest.TestResult.stopTest(self, test)
