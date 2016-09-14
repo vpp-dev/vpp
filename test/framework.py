@@ -31,12 +31,12 @@ class VppTestCase(unittest.TestCase):
     def setUpClass(cls):
         cls.setUpConstants()
         cls.pg_streams = []
-        cls.MY_MACS = []
-        cls.MY_IP4S = []
-        cls.MY_IP6S = []
-        cls.VPP_MACS = []
-        cls.VPP_IP4S = []
-        cls.VPP_IP6S = []
+        cls.MY_MACS = {}
+        cls.MY_IP4S = {}
+        cls.MY_IP6S = {}
+        cls.VPP_MACS = {}
+        cls.VPP_IP4S = {}
+        cls.VPP_IP6S = {}
         print "=================================================================="
         print cls.YELLOW + getdoc(cls) + cls.END
         print "=================================================================="
@@ -100,7 +100,7 @@ class VppTestCase(unittest.TestCase):
 
         cls.cli(2, "trace add pg-input 1")
         cls.pg_send()
-        arp_reply = rdpcap("/tmp/pg%u_out.pcap" % port)[0]
+        arp_reply = cls.pg_read_output(port)[0]
         if  arp_reply[ARP].op == ARP.is_at:
             cls.log("VPP pg%u MAC address is %s " % ( port, arp_reply[ARP].hwsrc))
             return arp_reply[ARP].hwsrc
@@ -109,9 +109,9 @@ class VppTestCase(unittest.TestCase):
     @classmethod
     def create_links(cls, num_if):
         for i in range (0, num_if):
-            cls.MY_MACS.append("00:00:00:00:ff:%02x" % i)
-            cls.MY_IP4S.append("172.16.%u.2" % i)
-            cls.VPP_IP4S.append("172.16.%u.1" % i)
+            cls.MY_MACS[i] = "00:00:00:00:ff:%02x" % i
+            cls.MY_IP4S[i] = "172.16.%u.2" % i
+            cls.VPP_IP4S[i] = "172.16.%u.1" % i
             cls.log("My MAC address is %s, IPv4 address is %s" %
                     (cls.MY_MACS[i], cls.MY_IP4S[i]))
             cls.cli(0, "create packet-generator interface pg%u" % i)
@@ -125,7 +125,7 @@ class VppTestCase(unittest.TestCase):
         ###############################################################################
 
         for i in range (0, num_if):
-            cls.VPP_MACS.append(cls.resolve_arp(i, cls.VPP_IP4S[i]))
+            cls.VPP_MACS[i] = cls.resolve_arp(i, cls.VPP_IP4S[i])
 
 class VppTestResult(unittest.TestResult):
     RED = '\033[91m'
