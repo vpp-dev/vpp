@@ -54,11 +54,19 @@ class TestVxlan(VppTestCase):
                 '\x08\x00\x00\x00'/'\x00\x00\x01\x00' /
                 payload)
 
+        # Add packet to list of packets
         pkts.append(p)
-        self.pg_arm(0, 1, pkts)
-        self.pg_send()
 
-        out = self.pg_read_output(1)
+        # Create packet generator stream
+        self.pg_add_stream(0, pkts)
+
+        # Enable Packet Capture on both ports
+        self.pg_enable_capture([0,1])
+
+        # Start all streams
+        self.pg_start()
+
+        out = self.pg_get_capture(1)
         self.assertEqual(len(out), 1, 'Invalid number of packets on '
                 'output: %u' % len(out))
 
@@ -85,11 +93,20 @@ class TestVxlan(VppTestCase):
                 vxlan_header /
                 payload)
 
-        pkts.append(payload)
-        self.pg_arm(1, 0, pkts)
-        self.pg_send()
 
-        out = self.pg_read_output(0)
+        # Add packet to the list of packets
+        pkts.append(payload)
+
+        # Create packet generator stream
+        self.pg_add_stream(1, pkts)
+
+        # Enable Packet Capture on both ports
+        self.pg_enable_capture([0,1])
+
+        # Start all streams
+        self.pg_start()
+
+        out = self.pg_get_capture(0)
         self.assertEqual(len(out), 1, 'Invalid number of packets on '
                 'output: %u' % len(out))
 
