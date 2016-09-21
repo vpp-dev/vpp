@@ -59,8 +59,8 @@ class VppTestCase(unittest.TestCase):
         cls.quit()
 
     @classmethod
-    def log(cls, s):
-        if cls.verbose > 0:
+    def log(cls, s, v=1):
+        if cls.verbose >= v:
             print "LOG: " + cls.LPURPLE + s + cls.END
 
     @classmethod
@@ -96,28 +96,33 @@ class VppTestCase(unittest.TestCase):
                 print cls.YELLOW + out + cls.END
 
     @classmethod
-    def pg_add_stream(self, i, pkts):
+    def pg_add_stream(cls, i, pkts):
         os.system("sudo rm -f /tmp/pg%u_in.pcap" % i)
         wrpcap("/tmp/pg%u_in.pcap" % i, pkts)
-        self.cli(0, "packet-generator new pcap /tmp/pg%u_in.pcap source pg%u name pcap%u" % (i, i, i))
-        self.pg_streams.append('pcap%u' % i)
+        cls.cli(0, "packet-generator new pcap /tmp/pg%u_in.pcap source pg%u name pcap%u" % (i, i, i))
+        cls.pg_streams.append('pcap%u' % i)
 
     @classmethod
-    def pg_enable_capture(self, args):
+    def pg_enable_capture(cls, args):
         for i in args:
             os.system("sudo rm -f /tmp/pg%u_out.pcap" % i)
-            self.cli(0, "packet-generator capture pg%u pcap /tmp/pg%u_out.pcap" % (i, i))
+            cls.cli(0, "packet-generator capture pg%u pcap /tmp/pg%u_out.pcap" % (i, i))
 
     @classmethod
-    def pg_start(self):
-        self.cli(0, 'packet-generator enable')
-        for stream in self.pg_streams:
-            self.cli(0, 'packet-generator delete %s' % stream)
-        self.pg_streams = []
+    def pg_start(cls):
+        cls.cli(0, 'packet-generator enable')
+        for stream in cls.pg_streams:
+            cls.cli(0, 'packet-generator delete %s' % stream)
+        cls.pg_streams = []
 
     @classmethod
-    def pg_get_capture(self, o):
-        output = rdpcap("/tmp/pg%u_out.pcap" % o)
+    def pg_get_capture(cls, o):
+        pcap_filename = "/tmp/pg%u_out.pcap" % o
+        try:
+            output = rdpcap(pcap_filename)
+        except IOError:  # TODO
+            cls.log("WARNING: File %s does not exist, probably because no packets arrived" % pcap_filename)
+            return []
         return output
 
     @classmethod
@@ -134,11 +139,11 @@ class VppTestCase(unittest.TestCase):
             cls.cli(2, "trace add pg-input 1")
             cls.pg_start()
             arp_reply = cls.pg_get_capture(i)[0]
-            if  arp_reply[ARP].op == ARP.is_at:
+            if arp_reply[ARP].op == ARP.is_at:
                 cls.log("VPP pg%u MAC address is %s " % ( i, arp_reply[ARP].hwsrc))
                 cls.VPP_MACS[i] = arp_reply[ARP].hwsrc
-                return
-            cli.log("No ARP received on port %u" % i)
+            else:
+                cls.log("No ARP received on port %u" % i)
 
     @classmethod
     def config_ip4(cls, args):
@@ -147,6 +152,7 @@ class VppTestCase(unittest.TestCase):
             cls.VPP_IP4S[i] = "172.16.%u.1" % i
             cls.api("sw_interface_add_del_address pg%u %s/24" % (i, cls.VPP_IP4S[i]))
             cls.log("My IPv4 address is %s" % (cls.MY_IP4S[i]))
+
     @classmethod
     def create_interfaces(cls, args):
         for i in args:
@@ -154,6 +160,67 @@ class VppTestCase(unittest.TestCase):
             cls.log("My MAC address is %s" % (cls.MY_MACS[i]))
             cls.cli(0, "create packet-generator interface pg%u" % i)
             cls.cli(0, "set interface state pg%u up" % i)
+
+    class PacketInfo:
+        def __init__(self):
+            pass
+        index = -1
+        src = -1
+        dst = -1
+        data = None
+
+    packet_infos = {}
+
+    def add_packet_info_to_list(self, info):
+        info.index = len(self.packet_infos)
+        self.packet_infos[info.index] = info
+
+    def create_packet_info(self, pg_id, target_id):
+        info = self.PacketInfo()
+        self.add_packet_info_to_list(info)
+        info.src = pg_id
+        info.dst = target_id
+        return info
+
+    @staticmethod
+    def info_to_payload(info):
+        return "%d %d %d" % (info.index, info.src, info.dst)
+
+    @staticmethod
+    def payload_to_info(payload):
+        numbers = payload.split()
+        info = VppTestCase.PacketInfo()
+        info.index = int(numbers[0])
+        info.src = int(numbers[1])
+        info.dst = int(numbers[2])
+        return info
+
+    def get_next_packet_info(self, info):
+        if info is None:
+            next_index = 0
+        else:
+            next_index = info.index + 1
+        if next_index == len(self.packet_infos):
+            return None
+        else:
+            return self.packet_infos[next_index]
+
+    def get_next_packet_info_for_interface(self, src_pg, info):
+        while True:
+            info = self.get_next_packet_info(info)
+            if info is None:
+                return None
+            if info.src == src_pg:
+                return info
+
+    def get_next_packet_info_for_interface2(self, src_pg, dst_pg, info):
+        while True:
+            info = self.get_next_packet_info_for_interface(src_pg, info)
+            if info is None:
+                return None
+            if info.dst == dst_pg:
+                return info
+
 
 class VppTestResult(unittest.TestResult):
     RED = '\033[91m'
