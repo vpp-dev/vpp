@@ -7,7 +7,7 @@ import os
 import sys
 import time
 import subprocess
-from scapy.all import Ether, ARP, wrpcap, rdpcap
+from scapy.all import Ether, ARP, Raw, wrpcap, rdpcap
 import unittest
 from inspect import *
 
@@ -112,6 +112,7 @@ class VppTestCase(unittest.TestCase):
 
     @classmethod
     def pg_start(cls):
+        cls.cli(2, "trace add pg-input 50") # 50 is maximum
         # cls.api("pg_enable_disable")
         cls.cli(0, 'packet-generator enable')
         for stream in cls.pg_streams:
@@ -164,6 +165,15 @@ class VppTestCase(unittest.TestCase):
             cls.log("My MAC address is %s" % (cls.MY_MACS[i]))
             cls.api("pg_create_interface if_id %u" % i)
             cls.api("sw_interface_set_flags pg%u admin-up" % i)
+
+    # Extend packet to specified size (including Ethernet FCS)
+    # Currently works only when Raw layer is present
+    @staticmethod
+    def extend_packet(packet, size):
+        packet_len = len(packet) + 4  # current packet length including Ethernet FCS
+        extend = size - packet_len
+        if extend > 0:
+            packet[Raw].load += ' ' * extend
 
     class PacketInfo:
         def __init__(self):

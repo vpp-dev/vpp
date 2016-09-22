@@ -194,6 +194,12 @@ class TestIPv4(VppTestCase):
                  Raw(payload))
             info.data = p.copy()
             self.add_dot1_layers(pg_id, p)
+            if not isinstance(self.INT_DETAILS[pg_id], self.Subint):
+                packet_sizes = [64, 512, 1518, 9018]
+            else:
+                packet_sizes = [64, 512, 1518+4, 9018+4]
+            size = packet_sizes[(i / 2) % len(packet_sizes)]
+            self.extend_packet(p, size)
             pkts.append(p)
         return pkts
 
