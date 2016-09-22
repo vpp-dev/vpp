@@ -99,6 +99,7 @@ class VppTestCase(unittest.TestCase):
     def pg_add_stream(cls, i, pkts):
         os.system("sudo rm -f /tmp/pg%u_in.pcap" % i)
         wrpcap("/tmp/pg%u_in.pcap" % i, pkts)
+        # no equivalent API command
         cls.cli(0, "packet-generator new pcap /tmp/pg%u_in.pcap source pg%u name pcap%u" % (i, i, i))
         cls.pg_streams.append('pcap%u' % i)
 
@@ -106,12 +107,15 @@ class VppTestCase(unittest.TestCase):
     def pg_enable_capture(cls, args):
         for i in args:
             os.system("sudo rm -f /tmp/pg%u_out.pcap" % i)
+            # cls.api("pg_capture if_id %u pcap /tmp/pg%u_out.pcap count <nnn>" % (i, i))
             cls.cli(0, "packet-generator capture pg%u pcap /tmp/pg%u_out.pcap" % (i, i))
 
     @classmethod
     def pg_start(cls):
+        # cls.api("pg_enable_disable")
         cls.cli(0, 'packet-generator enable')
         for stream in cls.pg_streams:
+            # cls.api("pg_enable_disable stream %s disable" % stream)
             cls.cli(0, 'packet-generator delete %s' % stream)
         cls.pg_streams = []
 
@@ -158,8 +162,8 @@ class VppTestCase(unittest.TestCase):
         for i in args:
             cls.MY_MACS[i] = "00:00:00:00:ff:%02x" % i
             cls.log("My MAC address is %s" % (cls.MY_MACS[i]))
-            cls.cli(0, "create packet-generator interface pg%u" % i)
-            cls.cli(0, "set interface state pg%u up" % i)
+            cls.api("pg_create_interface if_id %u" % i)
+            cls.api("sw_interface_set_flags pg%u admin-up" % i)
 
     class PacketInfo:
         def __init__(self):

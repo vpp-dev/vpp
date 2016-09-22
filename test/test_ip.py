@@ -41,7 +41,7 @@ class TestIPv4(VppTestCase):
         self.cli(2, "show trace")
         self.cli(2, "show hardware")
         self.cli(2, "show ip arp")
-        #self.cli(2, "show ip fib")  # 2M entries
+        # self.cli(2, "show ip fib")  # 2M entries
         self.cli(2, "show error")
         self.cli(2, "show run")
 
@@ -104,7 +104,7 @@ class TestIPv4(VppTestCase):
         for i in cls.interfaces:
             det = cls.INT_DETAILS[i]
             if isinstance(det, cls.Subint):
-                cls.cli(0, "set interface state pg%u.%u up" % (i, det.sub_id))
+                cls.api("sw_interface_set_flags pg%u.%u admin-up" % (i, det.sub_id))
 
     # IP adresses on subinterfaces
     MY_SOFT_IP4S = {}
@@ -145,7 +145,7 @@ class TestIPv4(VppTestCase):
     def config_fib_entries(cls, count):
         n_int = len(cls.interfaces)
         for i in cls.interfaces:
-            cls.cli(2, "ip route add 10.0.0.1/32 via %s count %u" % (cls.VPP_SOFT_IP4S[i], count / n_int))
+            cls.api("ip_add_del_route 10.0.0.1/32 via %s count %u" % (cls.VPP_SOFT_IP4S[i], count / n_int))
 
     @classmethod
     def add_dot1_layers(cls, i, packet):
