@@ -7,7 +7,7 @@ import os
 import sys
 import time
 import subprocess
-from scapy.all import Ether, ARP, Raw, wrpcap, rdpcap
+from scapy.all import Ether, ARP, Raw, IPv6, ICMPv6ND_NS, ICMPv6NDOptSrcLLAddr, wrpcap, rdpcap
 import unittest
 from inspect import *
 
@@ -39,6 +39,7 @@ class VppTestCase(unittest.TestCase):
         cls.VPP_MACS = {}
         cls.VPP_IP4S = {}
         cls.VPP_IP6S = {}
+        cls.packet_infos = {}
         print "=================================================================="
         print cls.YELLOW + getdoc(cls) + cls.END
         print "=================================================================="
@@ -151,12 +152,39 @@ class VppTestCase(unittest.TestCase):
                 cls.log("No ARP received on port %u" % i)
 
     @classmethod
+    def resolve_icmpv6_nd(cls, args):
+        for i in args:
+            ip = cls.VPP_IP6S[i]
+            cls.log("Sending ICMPv6ND_NS request for %s on port %u" % (ip, i))
+            nd_req = (Ether(dst="ff:ff:ff:ff:ff:ff", src=cls.MY_MACS[i]) /
+                      IPv6(src=cls.MY_IP6S[i], dst=ip) /
+                      ICMPv6ND_NS(tgt=ip) /
+                      ICMPv6NDOptSrcLLAddr(lladdr=cls.MY_MACS[i]))
+            cls.pg_add_stream(i, nd_req)
+            cls.pg_enable_capture([i])
+
+            cls.cli(2, "trace add pg-input 1")
+            cls.pg_start()
+            nd_reply = cls.pg_get_capture(i)[0]
+            icmpv6_na = nd_reply['ICMPv6 Neighbor Discovery - Neighbor Advertisement']
+            dst_ll_addr = icmpv6_na['ICMPv6 Neighbor Discovery Option - Destination Link-Layer Address']
+            cls.VPP_MACS[i] = dst_ll_addr.lladdr
+
+    @classmethod
     def config_ip4(cls, args):
         for i in args:
             cls.MY_IP4S[i] = "172.16.%u.2" % i
             cls.VPP_IP4S[i] = "172.16.%u.1" % i
             cls.api("sw_interface_add_del_address pg%u %s/24" % (i, cls.VPP_IP4S[i]))
             cls.log("My IPv4 address is %s" % (cls.MY_IP4S[i]))
+
+    @classmethod
+    def config_ip6(cls, args):
+        for i in args:
+            cls.MY_IP6S[i] = "fd00:%u::2" % i
+            cls.VPP_IP6S[i] = "fd00:%u::1" % i
+            cls.api("sw_interface_add_del_address pg%u %s/32" % (i, cls.VPP_IP6S[i]))
+            cls.log("My IPv6 address is %s" % (cls.MY_IP6S[i]))
 
     @classmethod
     def create_interfaces(cls, args):
@@ -182,8 +210,6 @@ class VppTestCase(unittest.TestCase):
         src = -1
         dst = -1
         data = None
-
-    packet_infos = {}
 
     def add_packet_info_to_list(self, info):
         info.index = len(self.packet_infos)

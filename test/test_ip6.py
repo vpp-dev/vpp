@@ -8,32 +8,34 @@ from framework import *
 from scapy.all import *
 
 
-class TestIPv4(VppTestCase):
-    """ IPv4 Test Case """
+class TestIPv6(VppTestCase):
+    """ IPv6 Test Case """
 
     @classmethod
     def setUpClass(cls):
-        super(TestIPv4, cls).setUpClass()
+        super(TestIPv6, cls).setUpClass()
 
         try:
             cls.create_interfaces_and_subinterfaces()
 
-            # configure IPv4 on hardware interfaces
-            cls.config_ip4(cls.interfaces)
+            # configure IPv6 on hardware interfaces
+            cls.config_ip6(cls.interfaces)
 
-            cls.config_ip4_on_software_interfaces(cls.interfaces)
+            cls.config_ip6_on_software_interfaces(cls.interfaces)
 
-            # resolve ARP using hardware interfaces
-            cls.resolve_arp(cls.interfaces)
+            # resolve ICMPv6 ND using hardware interfaces
+            cls.resolve_icmpv6_nd(cls.interfaces)
 
             # let VPP know MAC addresses of peer (sub)interfaces
-            cls.resolve_arp_on_software_interfaces(cls.interfaces)
+            # cls.resolve_icmpv6_nd_on_software_interfaces(cls.interfaces)
+            cls.send_neighbour_advertisement_on_software_interfaces(cls.interfaces)
 
             # config 2M FIB enries
-            cls.config_fib_entries(2000000)
+            #cls.config_fib_entries(2000000)
+            cls.config_fib_entries(1000000)
 
         except Exception as e:
-            super(TestIPv4, cls).tearDownClass()
+            super(TestIPv6, cls).tearDownClass()
             raise
 
     def tearDown(self):
@@ -68,12 +70,12 @@ class TestIPv4(VppTestCase):
         def __init__(self, sub_id, vlan=None):
             if vlan is None:
                 vlan = sub_id
-            super(TestIPv4.Dot1QSubint, self).__init__(sub_id)
+            super(TestIPv6.Dot1QSubint, self).__init__(sub_id)
             self.vlan = vlan
 
     class Dot1ADSubint(Subint):
         def __init__(self, sub_id, outer_vlan, inner_vlan):
-            super(TestIPv4.Dot1ADSubint, self).__init__(sub_id)
+            super(TestIPv6.Dot1ADSubint, self).__init__(sub_id)
             self.outer_vlan = outer_vlan
             self.inner_vlan = inner_vlan
 
@@ -107,33 +109,32 @@ class TestIPv4(VppTestCase):
                 cls.api("sw_interface_set_flags pg%u.%u admin-up" % (i, det.sub_id))
 
     # IP adresses on subinterfaces
-    MY_SOFT_IP4S = {}
-    VPP_SOFT_IP4S = {}
+    MY_SOFT_IP6S = {}
+    VPP_SOFT_IP6S = {}
 
     @classmethod
-    def config_ip4_on_software_interfaces(cls, args):
+    def config_ip6_on_software_interfaces(cls, args):
         for i in args:
-            cls.MY_SOFT_IP4S[i] = "172.17.%u.2" % i
-            cls.VPP_SOFT_IP4S[i] = "172.17.%u.1" % i
+            cls.MY_SOFT_IP6S[i] = "fd01:%u::2" % i
+            cls.VPP_SOFT_IP6S[i] = "fd01:%u::1" % i
             if isinstance(cls.INT_DETAILS[i], cls.Subint):
                 interface = "pg%u.%u" % (i, cls.INT_DETAILS[i].sub_id)
             else:
                 interface = "pg%u" % i
-            cls.api("sw_interface_add_del_address %s %s/24" % (interface, cls.VPP_SOFT_IP4S[i]))
-            cls.log("My subinterface IPv4 address is %s" % (cls.MY_SOFT_IP4S[i]))
+            cls.api("sw_interface_add_del_address %s %s/32" % (interface, cls.VPP_SOFT_IP6S[i]))
+            cls.log("My subinterface IPv6 address is %s" % (cls.MY_SOFT_IP6S[i]))
 
     # let VPP know MAC addresses of peer (sub)interfaces
     @classmethod
-    def resolve_arp_on_software_interfaces(cls, args):
+    def resolve_icmpv6_nd_on_software_interfaces(cls, args):
         for i in args:
-            ip = cls.VPP_SOFT_IP4S[i]
-            cls.log("Sending ARP request for %s on port %u" % (ip, i))
-            packet = (Ether(dst="ff:ff:ff:ff:ff:ff", src=cls.MY_MACS[i]) /
-                      ARP(op=ARP.who_has, pdst=ip, psrc=cls.MY_SOFT_IP4S[i], hwsrc=cls.MY_MACS[i]))
-
-            cls.add_dot1_layers(i, packet)
-
-            cls.pg_add_stream(i, packet)
+            ip = cls.VPP_SOFT_IP6S[i]
+            cls.log("Sending ICMPv6ND_NS request for %s on port %u" % (ip, i))
+            nd_req = (Ether(dst="ff:ff:ff:ff:ff:ff", src=cls.MY_MACS[i]) /
+                      IPv6(src=cls.MY_SOFT_IP6S[i], dst=ip) /
+                      ICMPv6ND_NS(tgt=ip) /
+                      ICMPv6NDOptSrcLLAddr(lladdr=cls.MY_MACS[i]))
+            cls.pg_add_stream(i, nd_req)
             cls.pg_enable_capture([i])
 
             cls.cli(2, "trace add pg-input 1")
@@ -141,11 +142,27 @@ class TestIPv4(VppTestCase):
 
             # We don't need to read output
 
+    # let VPP know MAC addresses of peer (sub)interfaces
+    @classmethod
+    def send_neighbour_advertisement_on_software_interfaces(cls, args):
+        for i in args:
+            ip = cls.VPP_SOFT_IP6S[i]
+            cls.log("Sending ICMPv6ND_NA message for %s on port %u" % (ip, i))
+            pkt = (Ether(dst="ff:ff:ff:ff:ff:ff", src=cls.MY_MACS[i]) /
+                   IPv6(src=cls.MY_SOFT_IP6S[i], dst=ip) /
+                   ICMPv6ND_NA(tgt=ip, R=0, S=0) /
+                   ICMPv6NDOptDstLLAddr(lladdr=cls.MY_MACS[i]))
+            cls.pg_add_stream(i, pkt)
+            cls.pg_enable_capture([i])
+
+            cls.cli(2, "trace add pg-input 1")
+            cls.pg_start()
+
     @classmethod
     def config_fib_entries(cls, count):
         n_int = len(cls.interfaces)
         for i in cls.interfaces:
-            cls.api("ip_add_del_route 10.0.0.1/32 via %s count %u" % (cls.VPP_SOFT_IP4S[i], count / n_int))
+            cls.api("ip_add_del_route fd02::1/128 via %s count %u" % (cls.VPP_SOFT_IP6S[i], count / n_int))
 
     @classmethod
     def add_dot1_layers(cls, i, packet):
@@ -189,15 +206,15 @@ class TestIPv4(VppTestCase):
             info = self.create_packet_info(pg_id, target_pg_id)
             payload = self.info_to_payload(info)
             p = (Ether(dst=self.VPP_MACS[pg_id], src=self.MY_MACS[pg_id]) /
-                 IP(src=self.MY_SOFT_IP4S[pg_id], dst=self.MY_SOFT_IP4S[target_pg_id]) /
+                 IPv6(src=self.MY_SOFT_IP6S[pg_id], dst=self.MY_SOFT_IP6S[target_pg_id]) /
                  UDP(sport=1234, dport=1234) /
                  Raw(payload))
             info.data = p.copy()
             self.add_dot1_layers(pg_id, p)
             if not isinstance(self.INT_DETAILS[pg_id], self.Subint):
-                packet_sizes = [64, 512, 1518, 9018]
+                packet_sizes = [76, 512, 1518, 9018]
             else:
-                packet_sizes = [64, 512, 1518+4, 9018+4]
+                packet_sizes = [76, 512, 1518+4, 9018+4]
             size = packet_sizes[(i / 2) % len(packet_sizes)]
             self.extend_packet(p, size)
             pkts.append(p)
@@ -211,7 +228,7 @@ class TestIPv4(VppTestCase):
             self.remove_dot1_layers(o, packet)  # Check VLAN tags and Ethernet header
             self.assertTrue(Dot1Q not in packet)
             try:
-                ip = packet[IP]
+                ip = packet[IPv6]
                 udp = packet[UDP]
                 payload_info = self.payload_to_info(str(packet[Raw]))
                 packet_index = payload_info.index
@@ -225,8 +242,8 @@ class TestIPv4(VppTestCase):
                 self.assertEqual(packet_index, next_info.index)
                 saved_packet = next_info.data
                 # Check standard fields
-                self.assertEqual(ip.src, saved_packet[IP].src)
-                self.assertEqual(ip.dst, saved_packet[IP].dst)
+                self.assertEqual(ip.src, saved_packet[IPv6].src)
+                self.assertEqual(ip.dst, saved_packet[IPv6].dst)
                 self.assertEqual(udp.sport, saved_packet[UDP].sport)
                 self.assertEqual(udp.dport, saved_packet[UDP].dport)
             except:
@@ -238,7 +255,7 @@ class TestIPv4(VppTestCase):
             self.assertTrue(remaining_packet is None, "Port %u: Packet expected from source %u didn't arrive" % (o, i))
 
     def test_fib(self):
-        """ IPv4 FIB test """
+        """ IPv6 FIB test """
 
         for i in self.interfaces:
             pkts = self.create_stream(i)

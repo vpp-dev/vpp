@@ -1,5 +1,6 @@
 TEST_MODULES = \
 	test_ip \
+	test_ip6 \
 	test_vxlan
 
 TEST_OPTIONS =
