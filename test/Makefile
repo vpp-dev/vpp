@@ -1,7 +1,8 @@
 TEST_MODULES = \
 	test_ip \
 	test_ip6 \
-	test_vxlan
+	test_vxlan \
+	test_l2bd
 
 TEST_OPTIONS =
 
