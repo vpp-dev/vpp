@@ -17,6 +17,8 @@
 
 %{!?python2_minor_version: %define python2_minor_version %(%{__python} -c "import sys ; print sys.version[2:3]")}
 
+%define python2_sitelib /usr/lib/python2.7/site-packages
+
 Name: vpp
 Summary: Vector Packet Processing
 License: MIT
