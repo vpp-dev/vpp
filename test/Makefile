@@ -2,7 +2,8 @@
 #	test_ip \
 #	test_ip6 \
 #	test_vxlan \
-#	test_l2bd
+#	test_l2bd \
+#	test_l2xc
 
 TEST_OPTIONS =
 
