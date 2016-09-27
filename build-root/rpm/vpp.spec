@@ -3,8 +3,8 @@
 %define _unitdir         /lib/systemd/system
 %define _topdir          %(pwd)
 %define _builddir        %{_topdir}
-%define _version         %(../scripts/version rpm-version)
-%define _release         %(../scripts/version rpm-release)
+%define _version         16.09
+%define _release         release
 
 # Failsafe backport of Python2-macros for RHEL <= 6
 %{!?python_sitelib: %global python_sitelib      %(%{__python} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())")}
