@@ -3,25 +3,27 @@
 import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
 
-import os
-import sys
-import time
 import subprocess
-from scapy.all import Ether, ARP, Raw, IPv6, ICMPv6ND_NS, ICMPv6NDOptSrcLLAddr, wrpcap, rdpcap
 import unittest
 from inspect import *
+
+from scapy.utils import wrpcap, rdpcap
+from scapy.packet import Raw
+from scapy.layers.l2 import Ether, ARP
+from scapy.layers.inet6 import IPv6, ICMPv6ND_NS, ICMPv6NDOptSrcLLAddr
+
+RED = '\033[91m'
+GREEN = '\033[92m'
+YELLOW = '\033[93m'
+LPURPLE = '\033[94m'
+END = '\033[0m'
 
 
 class VppTestCase(unittest.TestCase):
     @classmethod
     def setUpConstants(cls):
-        cls.RED = '\033[91m'
-        cls.GREEN = '\033[92m'
-        cls.YELLOW = '\033[93m'
-        cls.LPURPLE = '\033[94m'
-        cls.END = '\033[0m'
         cls.vpp_bin = os.getenv('VPP_TEST_BIN', "vpp")
-        cls.vpp_api_test_bin = os.getenv ("VPP_TEST_API_TEST_BIN", "vpp-api-test")
+        cls.vpp_api_test_bin = os.getenv("VPP_TEST_API_TEST_BIN", "vpp-api-test")
         cls.vpp_cmdline = [cls.vpp_bin, "unix", "nodaemon", "api-segment", "{", "prefix", "unittest", "}"]
         cls.vpp_api_test_cmdline = [cls.vpp_api_test_bin, "chroot", "prefix", "unittest"]
         try:
@@ -41,28 +43,41 @@ class VppTestCase(unittest.TestCase):
         cls.VPP_IP6S = {}
         cls.packet_infos = {}
         print "=================================================================="
-        print cls.YELLOW + getdoc(cls) + cls.END
+        print YELLOW + getdoc(cls) + END
         print "=================================================================="
-        os.system("sudo rm -f /dev/shm/unittest-global_vm")
-        os.system("sudo rm -f /dev/shm/unittest-vpe-api")
-        os.system("sudo rm -f /dev/shm/unittest-db")
+        os.system("rm -f /dev/shm/unittest-global_vm")
+        os.system("rm -f /dev/shm/unittest-vpe-api")
+        os.system("rm -f /dev/shm/unittest-db")
         cls.vpp = subprocess.Popen(cls.vpp_cmdline, stderr=subprocess.PIPE)
 
     @classmethod
     def quit(cls):
         cls.vpp.terminate()
-        os.system("sudo rm -f /dev/shm/unittest-global_vm")
-        os.system("sudo rm -f /dev/shm/unittest-vpe-api")
-        os.system("sudo rm -f /dev/shm/unittest-db")
+        cls.vpp = None
+        os.system("rm -f /dev/shm/unittest-global_vm")
+        os.system("rm -f /dev/shm/unittest-vpe-api")
+        os.system("rm -f /dev/shm/unittest-db")
 
     @classmethod
     def tearDownClass(cls):
         cls.quit()
 
+    def tearDown(self):
+        self.cli(2, "show int")
+        self.cli(2, "show trace")
+        self.cli(2, "show hardware")
+        self.cli(2, "show ip arp")
+        self.cli(2, "show ip fib")
+        self.cli(2, "show error")
+        self.cli(2, "show run")
+
+    def setUp(self):
+        self.cli(2, "clear trace")
+
     @classmethod
     def log(cls, s, v=1):
         if cls.verbose >= v:
-            print "LOG: " + cls.LPURPLE + s + cls.END
+            print "LOG: " + LPURPLE + s + END
 
     @classmethod
     def api(cls, s):
@@ -71,13 +86,13 @@ class VppTestCase(unittest.TestCase):
                              stdin=subprocess.PIPE,
                              stderr=subprocess.PIPE)
         if cls.verbose > 0:
-            print "API: " + cls.RED + s + cls.END
+            print "API: " + RED + s + END
         p.stdin.write(s)
         out = p.communicate()[0]
         out = out.replace("vat# ", "", 2)
         if cls.verbose > 0:
-            if len (out) > 1:
-                print cls.YELLOW + out + cls.END
+            if len(out) > 1:
+                print YELLOW + out + END
 
     @classmethod
     def cli(cls, v, s):
@@ -88,13 +103,13 @@ class VppTestCase(unittest.TestCase):
                              stdin=subprocess.PIPE,
                              stderr=subprocess.PIPE)
         if cls.verbose > 0:
-            print "CLI: " + cls.RED + s + cls.END
+            print "CLI: " + RED + s + END
         p.stdin.write('exec ' + s)
         out = p.communicate()[0]
         out = out.replace("vat# ", "", 2)
         if cls.verbose > 0:
-            if len (out) > 1:
-                print cls.YELLOW + out + cls.END
+            if len(out) > 1:
+                print YELLOW + out + END
 
     @classmethod
     def pg_add_stream(cls, i, pkts):
@@ -113,7 +128,7 @@ class VppTestCase(unittest.TestCase):
 
     @classmethod
     def pg_start(cls):
-        cls.cli(2, "trace add pg-input 50") # 50 is maximum
+        cls.cli(2, "trace add pg-input 50")  # 50 is maximum
         # cls.api("pg_enable_disable")
         cls.cli(0, 'packet-generator enable')
         for stream in cls.pg_streams:
@@ -136,9 +151,9 @@ class VppTestCase(unittest.TestCase):
         for i in args:
             ip = cls.VPP_IP4S[i]
             cls.log("Sending ARP request for %s on port %u" % (ip, i))
-            arp_req = ( Ether(dst="ff:ff:ff:ff:ff:ff",src=cls.MY_MACS[i]) /
-                        ARP(op=ARP.who_has, pdst=ip,
-                            psrc=cls.MY_IP4S[i], hwsrc=cls.MY_MACS[i]))
+            arp_req = (Ether(dst="ff:ff:ff:ff:ff:ff", src=cls.MY_MACS[i]) /
+                       ARP(op=ARP.who_has, pdst=ip,
+                           psrc=cls.MY_IP4S[i], hwsrc=cls.MY_MACS[i]))
             cls.pg_add_stream(i, arp_req)
             cls.pg_enable_capture([i])
 
@@ -146,10 +161,11 @@ class VppTestCase(unittest.TestCase):
             cls.pg_start()
             arp_reply = cls.pg_get_capture(i)[0]
             if arp_reply[ARP].op == ARP.is_at:
-                cls.log("VPP pg%u MAC address is %s " % ( i, arp_reply[ARP].hwsrc))
+                cls.log("VPP pg%u MAC address is %s " % (i, arp_reply[ARP].hwsrc))
                 cls.VPP_MACS[i] = arp_reply[ARP].hwsrc
             else:
                 cls.log("No ARP received on port %u" % i)
+            cls.cli(2, "show trace")
 
     @classmethod
     def resolve_icmpv6_nd(cls, args):
@@ -189,7 +205,7 @@ class VppTestCase(unittest.TestCase):
     @classmethod
     def create_interfaces(cls, args):
         for i in args:
-            cls.MY_MACS[i] = "00:00:00:00:ff:%02x" % i
+            cls.MY_MACS[i] = "02:00:00:00:ff:%02x" % i
             cls.log("My MAC address is %s" % (cls.MY_MACS[i]))
             cls.api("pg_create_interface if_id %u" % i)
             cls.api("sw_interface_set_flags pg%u admin-up" % i)
@@ -203,9 +219,7 @@ class VppTestCase(unittest.TestCase):
         if extend > 0:
             packet[Raw].load += ' ' * extend
 
-    class PacketInfo:
-        def __init__(self):
-            pass
+    class PacketInfo(object):
         index = -1
         src = -1
         dst = -1
@@ -263,27 +277,24 @@ class VppTestCase(unittest.TestCase):
 
 
 class VppTestResult(unittest.TestResult):
-    RED = '\033[91m'
-    GREEN = '\033[92m'
-    END = '\033[0m'
-
     def __init__(self, stream, descriptions, verbosity):
         unittest.TestResult.__init__(self, stream, descriptions, verbosity)
         self.stream = stream
         self.descriptions = descriptions
         self.verbosity = verbosity
+        self.result_string = None
 
     def addSuccess(self, test):
         unittest.TestResult.addSuccess(self, test)
-        self.result_string = self.GREEN + "OK" + self.END
+        self.result_string = GREEN + "OK" + END
 
     def addFailure(self, test, err):
         unittest.TestResult.addFailure(self, test, err)
-        self.result_string = self.RED + "FAIL" + self.END
+        self.result_string = RED + "FAIL" + END
 
     def addError(self, test, err):
         unittest.TestResult.addError(self, test, err)
-        self.result_string = self.RED + "ERROR" + self.END
+        self.result_string = RED + "ERROR" + END
 
     def getDescription(self, test):
         short_description = test.shortDescription()
@@ -324,5 +335,5 @@ class VppTestRunner(unittest.TextTestRunner):
     resultclass = VppTestResult
 
     def run(self, test):
-        print "Running tests using custom test runner" # debug message
+        print "Running tests using custom test runner"  # debug message
         return super(VppTestRunner, self).run(test)

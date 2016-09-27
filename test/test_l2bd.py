@@ -1,4 +1,4 @@
-#!/bin/env python
+#!/env/bin/env python
 
 import logging
 logging.getLogger("scapy.runtime").setLevel(logging.ERROR)
