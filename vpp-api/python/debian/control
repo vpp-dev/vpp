@@ -1,0 +1,16 @@
+Source: vpp-python-api
+Section: devel
+Priority: optional
+Maintainer: Onong Tayeng <otayeng@cisco.com>
+Build-Depends: debhelper (>=9)
+Standards-Version: 3.9.6
+Homepage: https://wiki.fd.io/view/VPP/Python_API
+#Vcs-Git: git://anonscm.debian.org/collab-maint/vpp-python-api.git
+#Vcs-Browser: https://anonscm.debian.org/cgit/collab-maint/vpp-python-api.git
+
+Package: vpp-python-api
+Architecture: any
+Pre-Depends: vpp-lib
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: VPP Python API bindings
+ VPP Python API bindings. For details please visit : https://wiki.fd.io/view/VPP/Python_API

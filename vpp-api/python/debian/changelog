@@ -1,0 +1,5 @@
+vpp-python-api (16.09-release) unstable; urgency=medium
+
+  * Initial Release.
+
+ -- Onong Tayeng <otayeng@cisco.com>  Wed, 28 Sep 2016 06:19:57 -0700
