@@ -1168,3 +1168,4 @@ distclean:
 	rm -f $(MU_BUILD_ROOT_DIR)/deb/debian/*.install
 	rm -f $(MU_BUILD_ROOT_DIR)/deb/debian/*.dkms
 	rm -f $(MU_BUILD_ROOT_DIR)/deb/debian/changelog
+	rm rf $(MU_BUILD_ROOT_DIR)/python

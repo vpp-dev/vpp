@@ -179,15 +179,23 @@ plugins-release: $(BR)/.bootstrap.ok
 build-vpp-api: $(BR)/.bootstrap.ok
 	$(call make,$(PLATFORM)_debug,vpp-api-install)
 
-test:
+PYTHON_PATH=$(BR)/python
+PYTHON_VENV_PATH=$(PYTHON_PATH)/virtualenv
+
+python-virtualenv:
+	@virtualenv $(PYTHON_VENV_PATH)
+	@bash -c "source $(PYTHON_VENV_PATH)/bin/activate && pip install scapy"
+	@bash -c "source $(PYTHON_VENV_PATH)/bin/activate && cd $(WS_ROOT)/vpp-api/python && python setup.py install"
+
+test: python-virtualenv
 ifeq ($(OS_ID),ubuntu)
 	@sudo -E apt-get $(CONFIRM) $(FORCE) install python-dev python-scapy
 endif
 	@make -C $(BR) PLATFORM=vpp_lite TAG=vpp_lite vpp-install vpp-api-test-install
-	@sudo make -C test \
+	@sudo bash -c "source $(PYTHON_VENV_PATH)/bin/activate && make -C test \
 	  VPP_TEST_BIN=$(BR)/install-vpp_lite-native/vpp/bin/vpp \
 	  VPP_TEST_API_TEST_BIN=$(BR)/install-vpp_lite-native/vpp-api-test/bin/vpp_api_test \
-	  V=$(V)
+	  V=$(V)"
 
 retest:
 	@sudo make -C test \
