@@ -96,11 +96,11 @@ memif_interface_unlock (memif_if_t * mif)
 }
 
 static_always_inline void
-memif_prefetch_buffer_and_data (vlib_main_t * vm, u32 bi)
+memif_prefetch (vlib_main_t * vm, u32 bi)
 {
   vlib_buffer_t *b = vlib_get_buffer (vm, bi);
   vlib_prefetch_buffer_header (b, LOAD);
-  CLIB_PREFETCH (b->data, CLIB_CACHE_LINE_BYTES, LOAD);
+  CLIB_PREFETCH (vlib_buffer_get_current (b), CLIB_CACHE_LINE_BYTES, LOAD);
 }
 
 static_always_inline uword
@@ -129,16 +129,16 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
   else
     free_slots = ring_size - head + tail;
 
-  while (n_left > 5 && free_slots > 1)
+  while (n_left > 3 && free_slots > 3)
     {
-      if (PREDICT_TRUE (head + 5 < ring_size))
+      if (PREDICT_TRUE (head + 3 < ring_size))
 	{
 	  CLIB_PREFETCH (memif_get_buffer (mif, ring, head + 2),
 			 CLIB_CACHE_LINE_BYTES, STORE);
 	  CLIB_PREFETCH (memif_get_buffer (mif, ring, head + 3),
 			 CLIB_CACHE_LINE_BYTES, STORE);
-	  CLIB_PREFETCH (&ring->desc[head + 4], CLIB_CACHE_LINE_BYTES, STORE);
-	  CLIB_PREFETCH (&ring->desc[head + 5], CLIB_CACHE_LINE_BYTES, STORE);
+	  CLIB_PREFETCH (&ring->desc[head + 2], CLIB_CACHE_LINE_BYTES, STORE);
+	  CLIB_PREFETCH (&ring->desc[head + 3], CLIB_CACHE_LINE_BYTES, STORE);
 	}
       else
 	{
@@ -146,14 +146,14 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 			 CLIB_CACHE_LINE_BYTES, STORE);
 	  CLIB_PREFETCH (memif_get_buffer (mif, ring, (head + 3) % mask),
 			 CLIB_CACHE_LINE_BYTES, STORE);
-	  CLIB_PREFETCH (&ring->desc[(head + 4) % mask],
+	  CLIB_PREFETCH (&ring->desc[(head + 2) % mask],
 			 CLIB_CACHE_LINE_BYTES, STORE);
-	  CLIB_PREFETCH (&ring->desc[(head + 5) % mask],
+	  CLIB_PREFETCH (&ring->desc[(head + 3) % mask],
 			 CLIB_CACHE_LINE_BYTES, STORE);
 	}
 
-      memif_prefetch_buffer_and_data (vm, buffers[2]);
-      memif_prefetch_buffer_and_data (vm, buffers[3]);
+      memif_prefetch (vm, buffers[2]);
+      memif_prefetch (vm, buffers[3]);
 
       vlib_buffer_t *b0 = vlib_get_buffer (vm, buffers[0]);
       vlib_buffer_t *b1 = vlib_get_buffer (vm, buffers[1]);
@@ -161,23 +161,32 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
       void *mb0 = memif_get_buffer (mif, ring, head);
       clib_memcpy (mb0, vlib_buffer_get_current (b0), CLIB_CACHE_LINE_BYTES);
       ring->desc[head].length = b0->current_length;
+      ASSERT (ring->desc[head].length <= mif->buffer_size);	// TODO: buffer chaining
       head = (head + 1) & mask;
 
       void *mb1 = memif_get_buffer (mif, ring, head);
       clib_memcpy (mb1, vlib_buffer_get_current (b1), CLIB_CACHE_LINE_BYTES);
       ring->desc[head].length = b1->current_length;
+      ASSERT (ring->desc[head].length <= mif->buffer_size);	// TODO: buffer chaining
       head = (head + 1) & mask;
 
       if (b0->current_length > CLIB_CACHE_LINE_BYTES)
-	clib_memcpy (mb0, vlib_buffer_get_current (b0),
-		     b0->current_length - CLIB_CACHE_LINE_BYTES);
+	{
+	  clib_memcpy (mb0 + CLIB_CACHE_LINE_BYTES,
+		       vlib_buffer_get_current (b0) + CLIB_CACHE_LINE_BYTES,
+		       b0->current_length - CLIB_CACHE_LINE_BYTES);
+	}
       if (b1->current_length > CLIB_CACHE_LINE_BYTES)
-	clib_memcpy (mb1, vlib_buffer_get_current (b1),
-		     b1->current_length - CLIB_CACHE_LINE_BYTES);
+	{
+	  clib_memcpy (mb1 + CLIB_CACHE_LINE_BYTES,
+		       vlib_buffer_get_current (b1) + CLIB_CACHE_LINE_BYTES,
+		       b1->current_length - CLIB_CACHE_LINE_BYTES);
+	}
+
 
       buffers += 2;
       n_left -= 2;
-      free_slots += 2;
+      free_slots -= 2;
     }
 
   while (n_left && free_slots)
@@ -185,10 +194,15 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
       vlib_buffer_t *b0 = vlib_get_buffer (vm, buffers[0]);
       void *mb0 = memif_get_buffer (mif, ring, head);
       clib_memcpy (mb0, vlib_buffer_get_current (b0), CLIB_CACHE_LINE_BYTES);
+
       if (b0->current_length > CLIB_CACHE_LINE_BYTES)
-	clib_memcpy (mb0, vlib_buffer_get_current (b0),
-		     b0->current_length - CLIB_CACHE_LINE_BYTES);
+	{
+	  clib_memcpy (mb0 + CLIB_CACHE_LINE_BYTES,
+		       vlib_buffer_get_current (b0) + CLIB_CACHE_LINE_BYTES,
+		       b0->current_length - CLIB_CACHE_LINE_BYTES);
+	}
       ring->desc[head].length = b0->current_length;
+      ASSERT (ring->desc[head].length <= mif->buffer_size);	// TODO: buffer chaining
       head = (head + 1) & mask;
 
       buffers++;
