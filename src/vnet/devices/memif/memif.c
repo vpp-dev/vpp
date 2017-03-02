@@ -32,6 +32,8 @@
 #include <vnet/ethernet/ethernet.h>
 #include <vnet/devices/memif/memif.h>
 
+memif_main_t memif_main;
+
 static u32
 memif_eth_flag_change (vnet_main_t * vnm, vnet_hw_interface_t * hi, u32 flags)
 {
@@ -44,12 +46,35 @@ memif_connect (vlib_main_t * vm, memif_if_t * mif)
 {
   vnet_main_t *vnm = vnet_get_main ();
   int num_rings = mif->num_s2m_rings + mif->num_m2s_rings;
+  memif_ring_data_t *rd = NULL;
 
   vec_validate_aligned (mif->ring_data, num_rings - 1, CLIB_CACHE_LINE_BYTES);
+  vec_foreach (rd, mif->ring_data)
+  {
+    rd->last_head = 0;
+  }
 
   mif->flags |= MEMIF_IF_FLAG_CONNECTED;
   vnet_hw_interface_set_flags (vnm, mif->hw_if_index,
 			       VNET_HW_INTERFACE_FLAG_LINK_UP);
+}
+
+static void
+memif_disconnect (vlib_main_t * vm, memif_if_t * mif)
+{
+  vnet_main_t *vnm = vnet_get_main ();
+
+  mif->flags &= ~MEMIF_IF_FLAG_CONNECTED;
+  vnet_hw_interface_set_flags (vnm, mif->hw_if_index, 0);
+
+  if (mif->conn_file_index != ~0)
+    {
+      unix_file_del (&unix_main, unix_main.file_pool + mif->conn_file_index);
+      mif->conn_file_index = ~0;
+      mif->conn_fd = -1; /* closed in unix_file_del */
+    }
+  // TODO: properly munmap + close memif-owned shared memory segments
+  vec_free(mif->regions);
 }
 
 static clib_error_t *
@@ -57,7 +82,7 @@ memif_fd_read_ready (unix_file_t * uf)
 {
   memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
-  char ctl[256];
+  char ctl[CMSG_SPACE (sizeof (int)) + CMSG_SPACE (sizeof (struct ucred))];
   struct msghdr mh;
   struct iovec iov[1];
   struct ucred *cr = 0;
@@ -79,6 +104,11 @@ memif_fd_read_ready (unix_file_t * uf)
   size = recvmsg (uf->file_descriptor, &mh, 0);
   if (size != sizeof (memif_msg_t))
     {
+      if (0 == size)
+	{
+	  memif_disconnect (vm, mif);
+	  return 0;
+	}
       // TODO better error handling
       clib_unix_error ("recvmsg");
       return 0;
@@ -125,25 +155,33 @@ memif_fd_accept_ready (unix_file_t * uf)
 {
   memif_main_t *mm = &memif_main;
   memif_if_t *mif;
-  int client_fd, client_len;
+  int addr_len;
   struct sockaddr_un client;
+  int conn_fd;
   unix_file_t template = { 0 };
 
   mif = pool_elt_at_index (mm->interfaces, uf->private_data);
 
-  client_len = sizeof (client);
-  client_fd = accept (uf->file_descriptor,
-		      (struct sockaddr *) &client,
-		      (socklen_t *) & client_len);
+  addr_len = sizeof (client);
+  conn_fd = accept (uf->file_descriptor,
+		    (struct sockaddr *) &client,
+		    (socklen_t *) & addr_len);
 
-  if (client_fd < 0)
+  if (conn_fd < 0)
     return clib_error_return_unix (0, "accept");
 
-  template.read_function = memif_fd_read_ready;
-  template.file_descriptor = client_fd;
-  mif->unix_file_index = unix_file_add (&unix_main, &template);
+  if (mif->conn_fd > -1)
+    {
+      close(conn_fd);
+      clib_unix_warning ("already connected/connecting");
+      return 0;
+    }
 
-  mif->fd = client_fd;
+  template.read_function = memif_fd_read_ready;
+  template.file_descriptor = conn_fd;
+  template.private_data = mif->if_index;
+  mif->conn_file_index = unix_file_add (&unix_main, &template);
+  mif->conn_fd = conn_fd;
 
   return 0;
 }
@@ -155,12 +193,11 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   memif_msg_t msg;
   struct msghdr mh = { 0 };
   struct iovec iov[1];
-  struct cmsghdr *cmsghdr;
+  struct cmsghdr *cmsg;
   int mfd;
   int rv;
-  //FIXME 1024 ?
-  char ctl[1024];
-  memif_ring_t *ring;
+  char ctl[CMSG_SPACE (sizeof (int))];
+  memif_ring_t *ring = NULL;
   int i, j;
   void *shm;
   u64 buffer_offset;
@@ -230,13 +267,14 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
 
   memset (&ctl, 0, sizeof (ctl));
   mh.msg_control = ctl;
-  mh.msg_controllen = CMSG_SPACE (sizeof (int));
-  cmsghdr = CMSG_FIRSTHDR (&mh);
-  cmsghdr->cmsg_len = CMSG_LEN (sizeof (int));
-  cmsghdr->cmsg_level = SOL_SOCKET;
-  cmsghdr->cmsg_type = SCM_RIGHTS;
-  clib_memcpy (CMSG_DATA (cmsghdr), &mfd, sizeof (mfd));
-  rv = sendmsg (mif->fd, &mh, 0);
+  mh.msg_controllen = sizeof (ctl);
+  cmsg = CMSG_FIRSTHDR (&mh);
+  cmsg->cmsg_len = CMSG_LEN (sizeof (mfd));
+  cmsg->cmsg_level = SOL_SOCKET;
+  cmsg->cmsg_type = SCM_RIGHTS;
+  clib_memcpy (CMSG_DATA (cmsg), &mfd, sizeof (mfd));
+
+  rv = sendmsg (mif->conn_fd, &mh, 0);
 
   if (rv < 0)
     clib_unix_warning ("sendmsg");
@@ -285,9 +323,10 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 		 sizeof (struct sockaddr_un)) == 0)
 	      {
 		//vui->sock_errno = 0;
-		mif->fd = sockfd;
+		mif->conn_fd = sockfd;
 		template.file_descriptor = sockfd;
-		mif->unix_file_index = unix_file_add (&unix_main, &template);
+		template.private_data = mif->if_index;
+		mif->conn_file_index = unix_file_add (&unix_main, &template);
 		memif_connect_master (vm, mif);
 
 		/* grab another fd */
@@ -312,18 +351,26 @@ VLIB_REGISTER_NODE (memif_process_node,static) = {
 static void
 close_memif_if (memif_main_t * mm, memif_if_t * mif)
 {
-  if (mif->unix_file_index != ~0)
-    {
-      unix_file_del (&unix_main, unix_main.file_pool + mif->unix_file_index);
-      mif->unix_file_index = ~0;
-    }
+  vlib_main_t *vm = vlib_get_main ();
 
-  if (mif->fd > -1)
-    close (mif->fd);
+  memif_disconnect (vm, mif);
+
+  if (mif->sock_file_index != ~0)
+    {
+      unix_file_del (&unix_main, unix_main.file_pool + mif->sock_file_index);
+      mif->sock_file_index = ~0;
+      mif->sock_fd = -1; /* closed in unix_file_del */
+    }
+  if (mif->lockp != 0)
+    {
+      clib_mem_free ((void *) mif->lockp);
+      mif->lockp = 0;
+    }
 
   mhash_unset (&mm->if_index_by_sock_file_name, mif->socket_file_name,
 	       &mif->if_index);
   vec_free (mif->socket_file_name);
+  vec_free (mif->ring_data);
 
   memset (mif, 0, sizeof (*mif));
   pool_put (mm->interfaces, mif);
@@ -374,7 +421,11 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
     return VNET_API_ERROR_SUBIF_ALREADY_EXISTS;
 
   pool_get (mm->interfaces, mif);
+  memset (mif, 0, sizeof (*mif));
   mif->if_index = mif - mm->interfaces;
+  mif->sock_fd = mif->conn_fd = -1;
+  mif->sock_file_index = mif->conn_file_index = ~0;
+  mif->hw_if_index = ~0;
 
   if (tm->n_vlib_mains > 1)
     {
@@ -448,26 +499,26 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
 	}
       if (bind (fd, (struct sockaddr *) &un, sizeof (un)) == -1)
 	{
-	  ret = VNET_API_ERROR_SYSCALL_ERROR_3;
+	  ret = VNET_API_ERROR_SYSCALL_ERROR_4;
 	  goto error;
 	}
 
       if (listen (fd, 1) == -1)
 	{
-	  ret = VNET_API_ERROR_SYSCALL_ERROR_4;
+	  ret = VNET_API_ERROR_SYSCALL_ERROR_5;
 	  goto error;
 	}
 
       unix_file_t template = { 0 };
       template.read_function = memif_fd_accept_ready;
-      template.file_descriptor = mif->fd = fd;
+      template.file_descriptor = mif->sock_fd = fd;
       template.private_data = mif->if_index;
-      mif->unix_file_index = unix_file_add (&unix_main, &template);
+      mif->sock_file_index = unix_file_add (&unix_main, &template);
     }
   else
     {
       mif->flags |= MEMIF_IF_FLAG_IS_SLAVE;
-      mif->fd = -1;
+      mif->sock_fd = -1;
     }
 
 #if 0
@@ -482,6 +533,11 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
   return 0;
 
 error:
+  if (mif->hw_if_index != ~0)
+    {
+      ethernet_delete_interface (vnm, mif->hw_if_index);
+      mif->hw_if_index = ~0;
+    }
   close_memif_if (mm, mif);
   return ret;
 }
