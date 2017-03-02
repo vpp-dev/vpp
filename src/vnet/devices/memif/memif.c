@@ -137,6 +137,8 @@ memif_fd_read_ready (unix_file_t * uf)
 	     mfd, 0)) == MAP_FAILED)
     clib_unix_error ("mmap");
 
+  // TODO: check cookie
+
   mif->log2_ring_size = msg.log2_ring_size;
   mif->num_s2m_rings = msg.num_s2m_rings;
   mif->num_m2s_rings = msg.num_m2s_rings;
