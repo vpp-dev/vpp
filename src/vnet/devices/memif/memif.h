@@ -75,11 +75,14 @@ typedef struct
 
   u32 per_interface_next_index;
 
-  int fd;
-  u32 unix_file_index;
+  int sock_fd;
+  int conn_fd;
+  u32 sock_file_index;
+  u32 conn_file_index;
   u8 *socket_file_name;
 
   void **regions;
+
   u8 log2_ring_size;
   u8 num_s2m_rings;
   u8 num_m2s_rings;
@@ -113,7 +116,7 @@ typedef struct
   u32 input_cpu_count;
 } memif_main_t;
 
-memif_main_t memif_main;
+extern memif_main_t memif_main;
 extern vnet_device_class_t memif_device_class;
 extern vlib_node_registration_t memif_input_node;
 
