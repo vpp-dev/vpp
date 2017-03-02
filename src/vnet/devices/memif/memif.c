@@ -71,6 +71,7 @@ memif_disconnect (vlib_main_t * vm, memif_if_t * mif)
     {
       unix_file_del (&unix_main, unix_main.file_pool + mif->conn_file_index);
       mif->conn_file_index = ~0;
+      mif->conn_fd = -1; /* closed in unix_file_del */
     }
   // TODO: properly munmap + close memif-owned shared memory segments
   vec_free(mif->regions);
@@ -156,28 +157,31 @@ memif_fd_accept_ready (unix_file_t * uf)
   memif_if_t *mif;
   int addr_len;
   struct sockaddr_un client;
+  int conn_fd;
   unix_file_t template = { 0 };
 
   mif = pool_elt_at_index (mm->interfaces, uf->private_data);
 
+  addr_len = sizeof (client);
+  conn_fd = accept (uf->file_descriptor,
+		    (struct sockaddr *) &client,
+		    (socklen_t *) & addr_len);
+
+  if (conn_fd < 0)
+    return clib_error_return_unix (0, "accept");
+
   if (mif->conn_fd > -1)
     {
+      close(conn_fd);
       clib_unix_warning ("already connected/connecting");
       return 0;
     }
 
-  addr_len = sizeof (client);
-  mif->conn_fd = accept (uf->file_descriptor,
-			 (struct sockaddr *) &client,
-			 (socklen_t *) & addr_len);
-
-  if (mif->conn_fd < 0)
-    return clib_error_return_unix (0, "accept");
-
   template.read_function = memif_fd_read_ready;
-  template.file_descriptor = mif->conn_fd;
+  template.file_descriptor = conn_fd;
   template.private_data = mif->if_index;
   mif->conn_file_index = unix_file_add (&unix_main, &template);
+  mif->conn_fd = conn_fd;
 
   return 0;
 }
@@ -363,6 +367,7 @@ close_memif_if (memif_main_t * mm, memif_if_t * mif)
     {
       unix_file_del (&unix_main, unix_main.file_pool + mif->sock_file_index);
       mif->sock_file_index = ~0;
+      mif->sock_fd = -1; /* closed in unix_file_del */
     }
   if (mif->lockp != 0)
     {
