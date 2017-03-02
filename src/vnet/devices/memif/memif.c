@@ -66,11 +66,7 @@ memif_disconnect (vlib_main_t * vm, memif_if_t * mif)
 
   mif->flags &= ~MEMIF_IF_FLAG_CONNECTED;
   vnet_hw_interface_set_flags (vnm, mif->hw_if_index, 0);
-}
 
-static void
-close_memif_conn (memif_main_t * mm, memif_if_t * mif)
-{
   if (mif->conn_file_index != ~0)
     {
       unix_file_del (&unix_main, unix_main.file_pool + mif->conn_file_index);
@@ -114,7 +110,6 @@ memif_fd_read_ready (unix_file_t * uf)
     {
       if (0 == size)
 	{
-	  close_memif_conn (mm, mif);
 	  memif_disconnect (vm, mif);
 	  return 0;
 	}
@@ -365,7 +360,9 @@ VLIB_REGISTER_NODE (memif_process_node,static) = {
 static void
 close_memif_if (memif_main_t * mm, memif_if_t * mif)
 {
-  close_memif_conn (mm, mif);
+  vlib_main_t *vm = vlib_get_main ();
+
+  memif_disconnect (vm, mif);
 
   if (mif->sock_file_index != ~0)
     {
