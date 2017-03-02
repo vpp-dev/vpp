@@ -169,15 +169,22 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
       head = (head + 1) & mask;
 
       if (b0->current_length > CLIB_CACHE_LINE_BYTES)
-	clib_memcpy (mb0, vlib_buffer_get_current (b0),
-		     b0->current_length - CLIB_CACHE_LINE_BYTES);
+	{
+	  clib_memcpy (mb0 + CLIB_CACHE_LINE_BYTES,
+		       vlib_buffer_get_current (b0) + CLIB_CACHE_LINE_BYTES,
+		       b0->current_length - CLIB_CACHE_LINE_BYTES);
+	}
       if (b1->current_length > CLIB_CACHE_LINE_BYTES)
-	clib_memcpy (mb1, vlib_buffer_get_current (b1),
-		     b1->current_length - CLIB_CACHE_LINE_BYTES);
+	{
+	  clib_memcpy (mb1 + CLIB_CACHE_LINE_BYTES,
+		       vlib_buffer_get_current (b1) + CLIB_CACHE_LINE_BYTES,
+		       b1->current_length - CLIB_CACHE_LINE_BYTES);
+	}
+
 
       buffers += 2;
       n_left -= 2;
-      free_slots += 2;
+      free_slots -= 2;
     }
 
   while (n_left && free_slots)
@@ -185,9 +192,13 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
       vlib_buffer_t *b0 = vlib_get_buffer (vm, buffers[0]);
       void *mb0 = memif_get_buffer (mif, ring, head);
       clib_memcpy (mb0, vlib_buffer_get_current (b0), CLIB_CACHE_LINE_BYTES);
+
       if (b0->current_length > CLIB_CACHE_LINE_BYTES)
-	clib_memcpy (mb0, vlib_buffer_get_current (b0),
-		     b0->current_length - CLIB_CACHE_LINE_BYTES);
+	{
+	  clib_memcpy (mb0 + CLIB_CACHE_LINE_BYTES,
+		       vlib_buffer_get_current (b0) + CLIB_CACHE_LINE_BYTES,
+		       b0->current_length - CLIB_CACHE_LINE_BYTES);
+	}
       ring->desc[head].length = b0->current_length;
       head = (head + 1) & mask;
 
