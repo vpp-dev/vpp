@@ -203,7 +203,8 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
       ring->head = ring->tail = 0;
       for (j = 0; j < (1 << mif->log2_ring_size); j++)
 	{
-	  u16 slot = i * (1 << mif->log2_ring_size);
+	  u16 slot = i * (1 << mif->log2_ring_size) + j;
+	  ring->desc[j].region = 0;
 	  ring->desc[j].offset = buffer_offset + (slot * mif->buffer_size);
 	  ring->desc[j].buffer_length = mif->buffer_size;
 	}
@@ -214,7 +215,9 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
       ring->head = ring->tail = 0;
       for (j = 0; j < (1 << mif->log2_ring_size); j++)
 	{
-	  u16 slot = (i + mif->num_s2m_rings) * (1 << mif->log2_ring_size);
+	  u16 slot =
+	    (i + mif->num_s2m_rings) * (1 << mif->log2_ring_size) + j;
+	  ring->desc[j].region = 0;
 	  ring->desc[j].offset = buffer_offset + (slot * mif->buffer_size);
 	  ring->desc[j].buffer_length = mif->buffer_size;
 	}
