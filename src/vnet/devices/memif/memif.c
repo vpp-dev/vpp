@@ -72,11 +72,6 @@ memif_disconnect (vlib_main_t * vm, memif_if_t * mif)
       unix_file_del (&unix_main, unix_main.file_pool + mif->conn_file_index);
       mif->conn_file_index = ~0;
     }
-  if (mif->conn_fd > -1)
-    {
-      close (mif->conn_fd);
-      mif->conn_fd = -1;
-    }
   // TODO: properly munmap + close memif-owned shared memory segments
   vec_free(mif->regions);
 }
@@ -368,11 +363,6 @@ close_memif_if (memif_main_t * mm, memif_if_t * mif)
     {
       unix_file_del (&unix_main, unix_main.file_pool + mif->sock_file_index);
       mif->sock_file_index = ~0;
-    }
-  if (mif->sock_fd > -1)
-    {
-      close (mif->sock_fd);
-      mif->sock_fd = -1;
     }
   if (mif->lockp != 0)
     {
