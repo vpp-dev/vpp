@@ -108,10 +108,10 @@ memif_device_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
   n_free_bufs = vec_len (nm->rx_buffers[cpu_index]);
   if (PREDICT_FALSE (n_free_bufs < ring_size))
     {
-      vec_validate (nm->rx_buffers[cpu_index], ring_size + n_free_bufs - 1);
+      vec_validate (nm->rx_buffers[cpu_index], ring_size - n_free_bufs - 1);
       n_free_bufs +=
 	vlib_buffer_alloc (vm, &nm->rx_buffers[cpu_index][n_free_bufs],
-			   ring_size);
+			   ring_size - n_free_bufs);
       _vec_len (nm->rx_buffers[cpu_index]) = n_free_bufs;
     }
 
@@ -199,12 +199,16 @@ memif_device_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  rd->last_head = (rd->last_head + 1) & mask;
 
 	  if (b0->current_length > CLIB_CACHE_LINE_BYTES)
-	    clib_memcpy (vlib_buffer_get_current (b0), mb0,
+	    clib_memcpy (vlib_buffer_get_current (b0) + CLIB_CACHE_LINE_BYTES,
+			 mb0 + CLIB_CACHE_LINE_BYTES,
 			 b0->current_length - CLIB_CACHE_LINE_BYTES);
+
 	  if (b1->current_length > CLIB_CACHE_LINE_BYTES)
-	    clib_memcpy (vlib_buffer_get_current (b1), mb1,
+	    clib_memcpy (vlib_buffer_get_current (b1) + CLIB_CACHE_LINE_BYTES,
+			 mb1 + CLIB_CACHE_LINE_BYTES,
 			 b1->current_length - CLIB_CACHE_LINE_BYTES);
 
+	  /* trace */
 	  VLIB_BUFFER_TRACE_TRAJECTORY_INIT (b0);
 	  VLIB_BUFFER_TRACE_TRAJECTORY_INIT (b1);
 
@@ -273,7 +277,8 @@ memif_device_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
 	  clib_memcpy (vlib_buffer_get_current (b0), mb0,
 		       CLIB_CACHE_LINE_BYTES);
 	  if (b0->current_length > CLIB_CACHE_LINE_BYTES)
-	    clib_memcpy (vlib_buffer_get_current (b0), mb0,
+	    clib_memcpy (vlib_buffer_get_current (b0) + CLIB_CACHE_LINE_BYTES,
+			 mb0 + CLIB_CACHE_LINE_BYTES,
 			 b0->current_length - CLIB_CACHE_LINE_BYTES);
 
 	  /* trace */
