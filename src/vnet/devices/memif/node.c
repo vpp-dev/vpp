@@ -108,10 +108,10 @@ memif_device_input_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
   n_free_bufs = vec_len (nm->rx_buffers[cpu_index]);
   if (PREDICT_FALSE (n_free_bufs < ring_size))
     {
-      vec_validate (nm->rx_buffers[cpu_index], ring_size - n_free_bufs - 1);
+      vec_validate (nm->rx_buffers[cpu_index], ring_size + n_free_bufs - 1);
       n_free_bufs +=
 	vlib_buffer_alloc (vm, &nm->rx_buffers[cpu_index][n_free_bufs],
-			   ring_size - n_free_bufs);
+			   ring_size);
       _vec_len (nm->rx_buffers[cpu_index]) = n_free_bufs;
     }
 
