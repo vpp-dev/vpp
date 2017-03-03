@@ -27,7 +27,7 @@
 #include <vnet/devices/devices.h>
 #include <vnet/feature/feature.h>
 
-#include <vnet/devices/memif/memif.h>
+#include <memif/memif.h>
 
 #define foreach_memif_input_error
 

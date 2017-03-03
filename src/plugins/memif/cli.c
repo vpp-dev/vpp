@@ -22,7 +22,7 @@
 #include <vlib/unix/unix.h>
 #include <vnet/ethernet/ethernet.h>
 
-#include <vnet/devices/memif/memif.h>
+#include <memif/memif.h>
 
 static clib_error_t *
 memif_create_command_fn (vlib_main_t * vm, unformat_input_t * input,

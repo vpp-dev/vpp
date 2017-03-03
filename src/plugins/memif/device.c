@@ -25,7 +25,7 @@
 #include <vlib/unix/unix.h>
 #include <vnet/ethernet/ethernet.h>
 
-#include <vnet/devices/memif/memif.h>
+#include <memif/memif.h>
 
 #define foreach_memif_tx_func_error	       \
 _(NO_FREE_SLOTS, "no free tx slots")           \

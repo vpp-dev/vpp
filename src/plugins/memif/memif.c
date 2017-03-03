@@ -29,8 +29,10 @@
 
 #include <vlib/vlib.h>
 #include <vlib/unix/unix.h>
+#include <vnet/plugin/plugin.h>
 #include <vnet/ethernet/ethernet.h>
-#include <vnet/devices/memif/memif.h>
+#include <vpp/app/version.h>
+#include <memif/memif.h>
 
 memif_main_t memif_main;
 
@@ -605,6 +607,12 @@ memif_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (memif_init);
+
+/* *INDENT-OFF* */
+VLIB_PLUGIN_REGISTER () = {
+    .version = VPP_BUILD_VER,
+};
+/* *INDENT-ON* */
 
 /*
  * fd.io coding-style-patch-verification: ON
