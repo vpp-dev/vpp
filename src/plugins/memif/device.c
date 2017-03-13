@@ -220,6 +220,12 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
     }
 
   vlib_buffer_free (vm, vlib_frame_args (frame), frame->n_vectors);
+  if (mif->int_fd > 0)
+    {
+      u8 b = rid;
+      write (mif->int_fd, &b, sizeof (b));
+    }
+
   return frame->n_vectors;
 }
 

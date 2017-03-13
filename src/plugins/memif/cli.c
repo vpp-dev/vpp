@@ -134,8 +134,8 @@ memif_show_command_fn (vlib_main_t * vm, unformat_input_t * input,
   pool_foreach (mif, mm->interfaces,
     ({
        vlib_cli_output (vm, "interface %U", format_vnet_sw_if_index_name, vnm, mif->sw_if_index);
-       vlib_cli_output (vm, "  sock-fd %d conn-fd %d file %s", mif->sock_fd, mif->conn_fd,
-			mif->socket_file_name);
+       vlib_cli_output (vm, "  sock-fd %d conn-fd %d int-fd %d file %s", mif->sock_fd, mif->conn_fd,
+			mif->int_fd, mif->socket_file_name);
        vlib_cli_output (vm, "  ring-size %u num-c2s-rings %u num-s2c-rings %u buffer_size %u",
 			(1 << mif->log2_ring_size),
 			mif->num_s2m_rings,

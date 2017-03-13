@@ -73,10 +73,22 @@ memif_disconnect (vlib_main_t * vm, memif_if_t * mif)
     {
       unix_file_del (&unix_main, unix_main.file_pool + mif->conn_file_index);
       mif->conn_file_index = ~0;
-      mif->conn_fd = -1; /* closed in unix_file_del */
+      mif->conn_fd = -1;	/* closed in unix_file_del */
     }
   // TODO: properly munmap + close memif-owned shared memory segments
-  vec_free(mif->regions);
+  vec_free (mif->regions);
+}
+
+
+static clib_error_t *
+memif_intfd_read_ready (unix_file_t * uf)
+{
+  vlib_main_t *vm = vlib_get_main ();
+  u8 b;
+
+  read (uf->file_descriptor, &b, sizeof (b));
+  vlib_node_set_interrupt_pending (vm, memif_input_node.index);
+  return 0;
 }
 
 static clib_error_t *
@@ -84,7 +96,9 @@ memif_fd_read_ready (unix_file_t * uf)
 {
   memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
-  char ctl[CMSG_SPACE (sizeof (int)) + CMSG_SPACE (sizeof (struct ucred))];
+  unix_file_t template = { 0 };
+  int fd_array[2] = {-1, -1};
+  char ctl[CMSG_SPACE (sizeof (fd_array)) + CMSG_SPACE (sizeof (struct ucred))];
   struct msghdr mh;
   struct iovec iov[1];
   struct ucred *cr = 0;
@@ -93,7 +107,6 @@ memif_fd_read_ready (unix_file_t * uf)
   memif_msg_t msg;
   struct cmsghdr *cmsg;
   ssize_t size;
-  int mfd = -1;
   void *shm;
 
   iov[0].iov_base = (void *) &msg;
@@ -126,17 +139,17 @@ memif_fd_read_ready (unix_file_t * uf)
       else if (cmsg->cmsg_level == SOL_SOCKET
 	       && cmsg->cmsg_type == SCM_RIGHTS)
 	{
-	  clib_memcpy (&mfd, CMSG_DATA (cmsg), sizeof (mfd));
+	  clib_memcpy (fd_array, CMSG_DATA (cmsg), sizeof (fd_array));
 	}
       cmsg = CMSG_NXTHDR (&mh, cmsg);
     }
 
-  if (mfd == -1)
+  if (fd_array[0] == -1)
     return 0;
 
   if ((shm =
        mmap (NULL, msg.shared_mem_size, PROT_READ | PROT_WRITE, MAP_SHARED,
-	     mfd, 0)) == MAP_FAILED)
+	     fd_array[0], 0)) == MAP_FAILED)
     clib_unix_error ("mmap");
 
   mif->log2_ring_size = msg.log2_ring_size;
@@ -145,7 +158,13 @@ memif_fd_read_ready (unix_file_t * uf)
   mif->buffer_size = msg.buffer_size;
   mif->remote_pid = cr->pid;
   mif->remote_uid = cr->uid;
+  mif->int_fd = fd_array[1];
   vec_add1 (mif->regions, shm);
+
+  template.read_function = memif_intfd_read_ready;
+  template.file_descriptor = mif->int_fd;
+  template.private_data = mif->if_index;
+  mif->int_file_index = unix_file_add (&unix_main, &template);
 
   memif_connect (vm, mif);
 
@@ -166,15 +185,14 @@ memif_fd_accept_ready (unix_file_t * uf)
 
   addr_len = sizeof (client);
   conn_fd = accept (uf->file_descriptor,
-		    (struct sockaddr *) &client,
-		    (socklen_t *) & addr_len);
+		    (struct sockaddr *) &client, (socklen_t *) & addr_len);
 
   if (conn_fd < 0)
     return clib_error_return_unix (0, "accept");
 
   if (mif->conn_fd > -1)
     {
-      close(conn_fd);
+      close (conn_fd);
       clib_unix_warning ("already connected/connecting");
       return 0;
     }
@@ -198,11 +216,13 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   struct cmsghdr *cmsg;
   int mfd;
   int rv;
-  char ctl[CMSG_SPACE (sizeof (int))];
+  int fd_array[2];
+  char ctl[CMSG_SPACE (sizeof (fd_array))];
   memif_ring_t *ring = NULL;
   int i, j;
   void *shm;
   u64 buffer_offset;
+  unix_file_t template = { 0 };
 
   msg.log2_ring_size = mif->log2_ring_size;
   msg.num_s2m_rings = mif->num_s2m_rings;
@@ -267,16 +287,30 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   mh.msg_iov = iov;
   mh.msg_iovlen = 1;
 
+  /* create interrupt socket */
+  if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd_array) < 0)
+    clib_unix_error ("memfd_create");
+
+  mif->int_fd = fd_array[0];
+
+  template.read_function = memif_intfd_read_ready;
+  template.file_descriptor = mif->int_fd;
+  template.private_data = mif->if_index;
+  mif->int_file_index = unix_file_add (&unix_main, &template);
+
   memset (&ctl, 0, sizeof (ctl));
   mh.msg_control = ctl;
   mh.msg_controllen = sizeof (ctl);
   cmsg = CMSG_FIRSTHDR (&mh);
-  cmsg->cmsg_len = CMSG_LEN (sizeof (mfd));
+  cmsg->cmsg_len = CMSG_LEN (2 * sizeof (mfd));
   cmsg->cmsg_level = SOL_SOCKET;
   cmsg->cmsg_type = SCM_RIGHTS;
-  clib_memcpy (CMSG_DATA (cmsg), &mfd, sizeof (mfd));
+  fd_array[0] = mfd;
+  clib_memcpy (CMSG_DATA (cmsg), fd_array, sizeof (fd_array));
 
   rv = sendmsg (mif->conn_fd, &mh, 0);
+  /* This FD is given to peer, so we can close it */
+  close (fd_array[1]);
 
   if (rv < 0)
     clib_unix_warning ("sendmsg");
@@ -361,7 +395,7 @@ close_memif_if (memif_main_t * mm, memif_if_t * mif)
     {
       unix_file_del (&unix_main, unix_main.file_pool + mif->sock_file_index);
       mif->sock_file_index = ~0;
-      mif->sock_fd = -1; /* closed in unix_file_del */
+      mif->sock_fd = -1;	/* closed in unix_file_del */
     }
   if (mif->lockp != 0)
     {

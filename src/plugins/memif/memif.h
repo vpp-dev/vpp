@@ -77,8 +77,10 @@ typedef struct
 
   int sock_fd;
   int conn_fd;
+  int int_fd;
   u32 sock_file_index;
   u32 conn_file_index;
+  u32 int_file_index;
   u8 *socket_file_name;
 
   void **regions;
