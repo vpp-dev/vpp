@@ -54,7 +54,7 @@ memif_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 	args.is_master = 0;
       else if (unformat (line_input, "hw-addr %U",
 			 unformat_ethernet_address, args.hw_addr))
-	  args.hw_addr_set = 1;
+	args.hw_addr_set = 1;
       else
 	return clib_error_return (0, "unknown input `%U'",
 				  format_unformat_error, input);

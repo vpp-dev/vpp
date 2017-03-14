@@ -277,7 +277,7 @@ memif_interface_admin_up_down (vnet_main_t * vnm, u32 hw_if_index, u32 flags)
       mif->flags &= ~MEMIF_IF_FLAG_ADMIN_UP;
       if (!(mif->flags & MEMIF_IF_FLAG_DELETING)
 	  && mif->connection.index != ~0)
-        {
+	{
 	  msg.version = MEMIF_VERSION;
 	  msg.type = MEMIF_MSG_TYPE_DISCONNECT;
 	  send (mif->connection.fd, &msg, sizeof (msg), 0);

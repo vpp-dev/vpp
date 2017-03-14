@@ -36,8 +36,8 @@
 
 memif_main_t memif_main;
 
-static clib_error_t * memif_fd_msg_ready (unix_file_t * uf);
-static clib_error_t * memif_fd_auth_ready (unix_file_t * uf);
+static clib_error_t *memif_fd_msg_ready (unix_file_t * uf);
+static clib_error_t *memif_fd_auth_ready (unix_file_t * uf);
 
 static u32
 memif_eth_flag_change (vnet_main_t * vnm, vnet_hw_interface_t * hi, u32 flags)
@@ -113,15 +113,15 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   if (shm_fd == -1)
     {
-      clib_warning(
-	"Connection request is missing shared memory file descriptor");
+      clib_warning
+	("Connection request is missing shared memory file descriptor");
       retval = 1;
       goto response;
     }
 
   if (slave_cr == NULL)
     {
-      clib_warning("Connection request is missing slave credentials");
+      clib_warning ("Connection request is missing slave credentials");
       retval = 2;
       goto response;
     }
@@ -129,18 +129,17 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
   p = mhash_get (&mm->if_index_by_key, &req->key);
   if (!p)
     {
-      clib_warning("Connection request with unmatched key (%d)", req->key);
+      clib_warning ("Connection request with unmatched key (%d)", req->key);
       retval = 3;
       goto response;
     }
 
-  mif = vec_elt_at_index(mm->interfaces, *p);
+  mif = vec_elt_at_index (mm->interfaces, *p);
   if (mif->listener_index != pending_connection->listener_index)
     {
-      clib_warning(
-	"Connection request with non-matching listener (%d vs. %d)",
-	pending_connection->listener_index,
-	mif->listener_index);
+      clib_warning
+	("Connection request with non-matching listener (%d vs. %d)",
+	 pending_connection->listener_index, mif->listener_index);
       retval = 4;
       goto response;
     }
@@ -168,8 +167,8 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   if (req->shared_mem_size < sizeof (memif_shm_t))
     {
-      clib_warning (
-	"Unexpectedly small shared memory segment received from slave.");
+      clib_warning
+	("Unexpectedly small shared memory segment received from slave.");
       retval = 8;
       goto response;
     }
@@ -178,16 +177,16 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
        mmap (NULL, req->shared_mem_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 	     shm_fd, 0)) == MAP_FAILED)
     {
-      clib_unix_warning (
-	"Failed to map shared memory segment received from slave memif");
+      clib_unix_warning
+	("Failed to map shared memory segment received from slave memif");
       retval = 9;
       goto response;
     }
 
   if (((memif_shm_t *) shm)->cookie != 0xdeadbeef)
     {
-      clib_warning (
-	"Possibly corrupted shared memory segment received from slave memif");
+      clib_warning
+	("Possibly corrupted shared memory segment received from slave memif");
       munmap (shm, req->shared_mem_size);
       retval = 10;
       goto response;
@@ -224,13 +223,13 @@ memif_process_connect_resp (memif_if_t * mif, memif_msg_t * resp)
 
   if ((mif->flags & MEMIF_IF_FLAG_IS_SLAVE) == 0)
     {
-      clib_warning("Memif master does not accept connection responses");
+      clib_warning ("Memif master does not accept connection responses");
       return 0;
     }
 
   if ((mif->flags & MEMIF_IF_FLAG_CONNECTING) == 0)
     {
-      clib_warning("Unexpected connection response");
+      clib_warning ("Unexpected connection response");
       return 0;
     }
 
@@ -299,7 +298,7 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
     {
       clib_warning ("Memif version mismatch");
       if (is_pending_connection)
-        memif_remove_pending_connection (pending_connection);
+	memif_remove_pending_connection (pending_connection);
       return 0;
     }
 
@@ -330,17 +329,16 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
 	  cmsg = CMSG_NXTHDR (&mh, cmsg);
 	}
 
-      return memif_process_connect_req (pending_connection, &msg,
-					cr, shm_fd);
+      return memif_process_connect_req (pending_connection, &msg, cr, shm_fd);
 
     case MEMIF_MSG_TYPE_CONNECT_RESP:
       return memif_process_connect_resp (mif, &msg);
 
     case MEMIF_MSG_TYPE_DISCONNECT:
       if (is_pending_connection)
-        memif_remove_pending_connection (pending_connection);
+	memif_remove_pending_connection (pending_connection);
       else
-        memif_disconnect (vm, mif);
+	memif_disconnect (vm, mif);
       return 0;
 
     default:
@@ -348,19 +346,19 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
       return 0;
     }
 
- return 0;
+  return 0;
 }
 
 static clib_error_t *
 memif_fd_auth_ready (unix_file_t * uf)
 {
-  return memif_process_incoming_msg (uf, 1 /* requires authentication */);
+  return memif_process_incoming_msg (uf, 1 /* requires authentication */ );
 }
 
 static clib_error_t *
 memif_fd_msg_ready (unix_file_t * uf)
 {
-  return memif_process_incoming_msg (uf, 0 /* already authenticated */);
+  return memif_process_incoming_msg (uf, 0 /* already authenticated */ );
 }
 
 static clib_error_t *
@@ -378,7 +376,7 @@ memif_fd_accept_ready (unix_file_t * uf)
 
   addr_len = sizeof (client);
   conn_fd = accept (uf->file_descriptor,
-		    (struct sockaddr *) &client, (socklen_t *) &addr_len);
+		    (struct sockaddr *) &client, (socklen_t *) & addr_len);
 
   if (conn_fd < 0)
     return clib_error_return_unix (0, "accept");
@@ -593,7 +591,7 @@ close_memif_if (memif_main_t * mm, memif_if_t * mif)
 	  unix_file_del (&unix_main,
 			 unix_main.file_pool + listener->socket.index);
 	  pool_put (mm->listeners, listener);
-	  unlink ((char *)mif->socket_filename);
+	  unlink ((char *) mif->socket_filename);
 	}
     }
 
@@ -704,13 +702,12 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
   mif->num_s2m_rings = 1;
   mif->num_m2s_rings = 1;
 
-  mhash_set_mem (&mm->if_index_by_key, &args->key,
-		 &mif->if_index, 0);
+  mhash_set_mem (&mm->if_index_by_key, &args->key, &mif->if_index, 0);
 
   if (args->socket_filename != 0)
     mif->socket_filename = args->socket_filename;
   else
-    mif->socket_filename = vec_dup(mm->default_socket_filename);
+    mif->socket_filename = vec_dup (mm->default_socket_filename);
 
   args->sw_if_index = mif->sw_if_index;
 
@@ -723,7 +720,7 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
 
       if (stat ((char *) mif->socket_filename, &file_stat) == 0)
 	{
-	  if (!S_ISSOCK(file_stat.st_mode))
+	  if (!S_ISSOCK (file_stat.st_mode))
 	    {
 	      errno = ENOTSOCK;
 	      ret = VNET_API_ERROR_SYSCALL_ERROR_2;
@@ -742,7 +739,7 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
 	         }
 	     }));
           /* *INDENT-ON* */
-          unlink ((char *)mif->socket_filename);
+	  unlink ((char *) mif->socket_filename);
 	}
 
       pool_get (mm->listeners, listener);
@@ -780,7 +777,7 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
 	  goto error;
 	}
 
-      if (stat ((char *)mif->socket_filename, &file_stat) == -1)
+      if (stat ((char *) mif->socket_filename, &file_stat) == -1)
 	{
 	  ret = VNET_API_ERROR_SYSCALL_ERROR_7;
 	  goto error;
@@ -874,7 +871,7 @@ memif_config (vlib_main_t * vm, unformat_input_t * input)
 
   if (default_socket_filename != 0)
     {
-      vec_free(mm->default_socket_filename);
+      vec_free (mm->default_socket_filename);
       mm->default_socket_filename = default_socket_filename;
     }
 
