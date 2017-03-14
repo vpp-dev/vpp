@@ -330,18 +330,17 @@ static uword
 memif_input_fn (vlib_main_t * vm, vlib_node_runtime_t * node,
 		vlib_frame_t * frame)
 {
-  int i;
   u32 n_rx_packets = 0;
   u32 cpu_index = os_get_cpu_number ();
   memif_main_t *nm = &memif_main;
   memif_if_t *mif;
 
-  for (i = 0; i < vec_len (nm->interfaces); i++)
-    {
-      mif = vec_elt_at_index (nm->interfaces, i);
+  /* *INDENT-OFF* */
+  pool_foreach (mif, nm->interfaces,
+    ({
       if (mif->flags & MEMIF_IF_FLAG_ADMIN_UP &&
 	  mif->flags & MEMIF_IF_FLAG_CONNECTED &&
-	  (i % nm->input_cpu_count) ==
+	  (mif->if_index % nm->input_cpu_count) ==
 	  (cpu_index - nm->input_cpu_first_index))
 	{
 	  if (mif->flags & MEMIF_IF_FLAG_IS_SLAVE)
@@ -353,7 +352,8 @@ memif_input_fn (vlib_main_t * vm, vlib_node_runtime_t * node,
 	      memif_device_input_inline (vm, node, frame, mif,
 					 MEMIF_RING_S2M);
 	}
-    }
+    }));
+  /* *INDENT-ON* */
 
   return n_rx_packets;
 }
