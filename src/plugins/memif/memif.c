@@ -103,7 +103,7 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 {
   memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
-  unix_file_t* uf = vec_elt_at_index (unix_main.file_pool,
+  unix_file_t *uf = vec_elt_at_index (unix_main.file_pool,
 				      pending_connection->connection.index);
   memif_if_t *mif = 0;
   memif_msg_t resp = {0};
