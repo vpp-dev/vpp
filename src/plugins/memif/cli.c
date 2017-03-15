@@ -145,8 +145,8 @@ memif_show_command_fn (vlib_main_t * vm, unformat_input_t * input,
 			vnm, mif->sw_if_index);
        vlib_cli_output (vm, "  key %lu file %s", mif->key,
 			mif->socket_filename);
-       vlib_cli_output (vm, "  listener %d conn-fd %d", mif->listener_index,
-			mif->connection.fd);
+       vlib_cli_output (vm, "  listener %d conn-fd %d int-fd %d", mif->listener_index,
+			mif->connection.fd, mif->interrupt_line.fd);
        vlib_cli_output (vm, "  ring-size %u num-c2s-rings %u num-s2c-rings %u buffer_size %u",
 			(1 << mif->log2_ring_size),
 			mif->num_s2m_rings,

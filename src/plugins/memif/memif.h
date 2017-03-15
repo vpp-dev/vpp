@@ -113,6 +113,7 @@ typedef struct
 
   uword listener_index;
   memif_file_t connection;
+  memif_file_t interrupt_line;
   u8 *socket_filename;
 
   void **regions;

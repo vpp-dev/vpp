@@ -365,7 +365,7 @@ VLIB_REGISTER_NODE (memif_input_node) = {
   .sibling_of = "device-input",
   .format_trace = format_memif_input_trace,
   .type = VLIB_NODE_TYPE_INPUT,
-  .state = VLIB_NODE_STATE_POLLING,
+  .state = VLIB_NODE_STATE_INTERRUPT,
   .n_errors = MEMIF_INPUT_N_ERROR,
   .error_strings = memif_input_error_strings,
 };
