@@ -36,8 +36,7 @@
 
 memif_main_t memif_main;
 
-static clib_error_t *memif_conn_fd_msg_ready (unix_file_t * uf);
-static clib_error_t *memif_conn_fd_auth_ready (unix_file_t * uf);
+static clib_error_t *memif_conn_fd_read_ready (unix_file_t * uf);
 static clib_error_t *memif_int_fd_read_ready (unix_file_t * uf);
 
 static u32
@@ -112,8 +111,8 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 {
   memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
-  unix_file_t *uf = vec_elt_at_index (unix_main.file_pool,
-				      pending_connection->connection.index);
+  int fd = pending_connection->connection.fd;
+  unix_file_t *uf = 0;
   memif_if_t *mif = 0;
   memif_msg_t resp = { 0 };
   unix_file_t template = { 0 };
@@ -226,9 +225,10 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
   mif->interrupt_line.index = unix_file_add (&unix_main, &template);
 
   /* change context for future messages */
+  uf = vec_elt_at_index (unix_main.file_pool,
+			 pending_connection->connection.index);
+  uf->private_data = mif->if_index << 1;
   mif->connection = pending_connection->connection;
-  uf->read_function = memif_conn_fd_msg_ready;
-  uf->private_data = mif->if_index;
   pool_put (mm->pending_connections, pending_connection);
 
   memif_connect (vm, mif);
@@ -237,7 +237,7 @@ response:
   resp.version = MEMIF_VERSION;
   resp.type = MEMIF_MSG_TYPE_CONNECT_RESP;
   resp.retval = retval;
-  send (uf->file_descriptor, &resp, sizeof (resp), 0);
+  send (fd, &resp, sizeof (resp), 0);
   return 0;
 }
 
@@ -267,7 +267,7 @@ memif_process_connect_resp (memif_if_t * mif, memif_msg_t * resp)
 }
 
 static clib_error_t *
-memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
+memif_conn_fd_read_ready (unix_file_t * uf)
 {
   memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
@@ -291,15 +291,11 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
   mh.msg_controllen = sizeof (ctl);
 
   /* grab the appropriate context */
-  if (is_pending_connection)
-    {
-      pending_connection
-	= vec_elt_at_index (mm->pending_connections, uf->private_data);
-    }
+  if (uf->private_data & 1)
+    pending_connection = vec_elt_at_index (mm->pending_connections,
+					   uf->private_data >> 1);
   else
-    {
-      mif = vec_elt_at_index (mm->interfaces, uf->private_data);
-    }
+    mif = vec_elt_at_index (mm->interfaces, uf->private_data >> 1);
 
   /* receive the incoming message */
   size = recvmsg (uf->file_descriptor, &mh, 0);
@@ -307,7 +303,7 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
     {
       if (0 == size)
 	{
-	  if (is_pending_connection)
+	  if (pending_connection)
 	    memif_remove_pending_connection (pending_connection);
 	  else
 	    memif_disconnect (vm, mif);
@@ -322,7 +318,7 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
   if (msg.version != MEMIF_VERSION)
     {
       clib_warning ("Memif version mismatch");
-      if (is_pending_connection)
+      if (pending_connection)
 	memif_remove_pending_connection (pending_connection);
       return 0;
     }
@@ -331,7 +327,7 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
   switch (msg.type)
     {
     case MEMIF_MSG_TYPE_CONNECT_REQ:
-      if (!is_pending_connection)
+      if (pending_connection == 0)
 	{
 	  clib_warning ("Received unexpected connection request");
 	  return 0;
@@ -358,10 +354,15 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
 					fd_array[0], fd_array[1]);
 
     case MEMIF_MSG_TYPE_CONNECT_RESP:
+      if (mif == 0)
+	{
+	  clib_warning ("Received unexpected connection response");
+	  return 0;
+	}
       return memif_process_connect_resp (mif, &msg);
 
     case MEMIF_MSG_TYPE_DISCONNECT:
-      if (is_pending_connection)
+      if (pending_connection)
 	memif_remove_pending_connection (pending_connection);
       else
 	memif_disconnect (vm, mif);
@@ -376,30 +377,29 @@ memif_process_incoming_msg (unix_file_t * uf, u8 is_pending_connection)
 }
 
 static clib_error_t *
-memif_conn_fd_auth_ready (unix_file_t * uf)
-{
-  return memif_process_incoming_msg (uf, 1 /* requires authentication */ );
-}
-
-static clib_error_t *
-memif_conn_fd_msg_ready (unix_file_t * uf)
-{
-  return memif_process_incoming_msg (uf, 0 /* already authenticated */ );
-}
-
-static clib_error_t *
 memif_int_fd_read_ready (unix_file_t * uf)
 {
+  memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
+  memif_if_t *mif = vec_elt_at_index (mm->interfaces, uf->private_data);
   u8 b;
+  ssize_t size;
 
-  read (uf->file_descriptor, &b, sizeof (b));
+  size = read (uf->file_descriptor, &b, sizeof (b));
+  if (0 == size)
+    {
+      /* interrupt line was disconnected */
+      unix_file_del (&unix_main,
+		     unix_main.file_pool + mif->interrupt_line.index);
+      mif->interrupt_line.index = ~0;
+      mif->interrupt_line.fd = -1;
+    }
   vlib_node_set_interrupt_pending (vm, memif_input_node.index);
   return 0;
 }
 
 static clib_error_t *
-memif_fd_accept_ready (unix_file_t * uf)
+memif_conn_fd_accept_ready (unix_file_t * uf)
 {
   memif_main_t *mm = &memif_main;
   memif_listener_t *listener = 0;
@@ -423,9 +423,9 @@ memif_fd_accept_ready (unix_file_t * uf)
   pending_connection->listener_index = listener->index;
   pending_connection->connection.fd = conn_fd;
 
-  template.read_function = memif_conn_fd_auth_ready;
+  template.read_function = memif_conn_fd_read_ready;
   template.file_descriptor = conn_fd;
-  template.private_data = pending_connection->index;
+  template.private_data = (pending_connection->index << 1) | 1;
   pending_connection->connection.index =
 	unix_file_add (&unix_main, &template);
 
@@ -556,7 +556,7 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 
   sockfd = socket (AF_UNIX, SOCK_STREAM, 0);
   sun.sun_family = AF_UNIX;
-  template.read_function = memif_conn_fd_msg_ready;
+  template.read_function = memif_conn_fd_read_ready;
 
   while (1)
     {
@@ -590,7 +590,7 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 	        {
 		  mif->connection.fd = sockfd;
 		  template.file_descriptor = sockfd;
-		  template.private_data = mif->if_index;
+		  template.private_data = mif->if_index << 1;
 		  mif->connection.index = unix_file_add (&unix_main, &template);
 		  memif_connect_master (vm, mif);
 
@@ -839,7 +839,7 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
       listener->sock_ino = file_stat.st_ino;
 
       unix_file_t template = { 0 };
-      template.read_function = memif_fd_accept_ready;
+      template.read_function = memif_conn_fd_accept_ready;
       template.file_descriptor = listener->socket.fd;
       template.private_data = listener->index;
       listener->socket.index = unix_file_add (&unix_main, &template);
