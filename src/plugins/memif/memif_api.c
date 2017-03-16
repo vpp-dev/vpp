@@ -149,7 +149,6 @@ void vl_api_memif_create_t_handler
       args.hw_addr_set = 1;
     }
 
-
   rv = memif_create_if (vm, &args);
 
 reply:
