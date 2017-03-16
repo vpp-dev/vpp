@@ -32,6 +32,7 @@ memif_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
   int r;
   u32 ring_size = 1024;
   memif_create_if_args_t args = { 0 };
+  args.buffer_size = 2048;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -39,22 +40,26 @@ memif_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "socket %s", &args.socket_file_name))
+      if (unformat (line_input, "key %lu", &args.key))
+	;
+      else if (unformat (line_input, "socket %s", &args.socket_filename))
 	;
       else if (unformat (line_input, "ring-size %u", &ring_size))
+	;
+      else if (unformat (line_input, "buffer-size %u", &args.buffer_size))
 	;
       else if (unformat (line_input, "master"))
 	args.is_master = 1;
       else if (unformat (line_input, "slave"))
 	args.is_master = 0;
+      else if (unformat (line_input, "hw-addr %U",
+			 unformat_ethernet_address, args.hw_addr))
+	args.hw_addr_set = 1;
       else
 	return clib_error_return (0, "unknown input `%U'",
 				  format_unformat_error, input);
     }
   unformat_free (line_input);
-
-  if (args.socket_file_name == NULL)
-    return clib_error_return (0, "missing socket file name");
 
   if (!is_pow2 (ring_size))
     return clib_error_return (0, "ring size must be power of 2");
@@ -79,7 +84,9 @@ memif_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 /* *INDENT-OFF* */
 VLIB_CLI_COMMAND (memif_create_command, static) = {
   .path = "create memif",
-  .short_help = "create memif socket <name> <master|slave>",
+  .short_help = "create memif [key <key>] [socket <path>] "
+                "[ring-size <size>] [buffer-size <size>] [hw-addr <mac-address>] "
+		"<master|slave>",
   .function = memif_create_command_fn,
 };
 /* *INDENT-ON* */
@@ -89,7 +96,8 @@ memif_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
 			 vlib_cli_command_t * cmd)
 {
   unformat_input_t _line_input, *line_input = &_line_input;
-  u8 *host_if_name = NULL;
+  u64 key = 0;
+  u8 key_defined = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -97,18 +105,18 @@ memif_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "name %s", &host_if_name))
-	;
+      if (unformat (line_input, "key %lu", &key))
+	key_defined = 1;
       else
 	return clib_error_return (0, "unknown input `%U'",
 				  format_unformat_error, input);
     }
   unformat_free (line_input);
 
-  if (host_if_name == NULL)
-    return clib_error_return (0, "missing host interface name");
+  if (!key_defined)
+    return clib_error_return (0, "missing key");
 
-  memif_delete_if (vm, host_if_name);
+  memif_delete_if (vm, key);
 
   return 0;
 }
@@ -116,7 +124,7 @@ memif_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
 /* *INDENT-OFF* */
 VLIB_CLI_COMMAND (memif_delete_command, static) = {
   .path = "delete memif",
-  .short_help = "delete memif name <interface name>",
+  .short_help = "delete memif key <key-value>",
   .function = memif_delete_command_fn,
 };
 /* *INDENT-ON* */
@@ -133,25 +141,34 @@ memif_show_command_fn (vlib_main_t * vm, unformat_input_t * input,
   /* *INDENT-OFF* */
   pool_foreach (mif, mm->interfaces,
     ({
-       vlib_cli_output (vm, "interface %U", format_vnet_sw_if_index_name, vnm, mif->sw_if_index);
-       vlib_cli_output (vm, "  sock-fd %d conn-fd %d int-fd %d file %s", mif->sock_fd, mif->conn_fd,
-			mif->int_fd, mif->socket_file_name);
+       vlib_cli_output (vm, "interface %U", format_vnet_sw_if_index_name,
+			vnm, mif->sw_if_index);
+       vlib_cli_output (vm, "  key %lu file %s", mif->key,
+			mif->socket_filename);
+       vlib_cli_output (vm, "  listener %d conn-fd %d int-fd %d", mif->listener_index,
+			mif->connection.fd, mif->interrupt_line.fd);
        vlib_cli_output (vm, "  ring-size %u num-c2s-rings %u num-s2c-rings %u buffer_size %u",
 			(1 << mif->log2_ring_size),
 			mif->num_s2m_rings,
 			mif->num_m2s_rings,
 			mif->buffer_size);
-       for (i=0; i< mif->num_s2m_rings; i++)
+       for (i=0; i < mif->num_s2m_rings; i++)
          {
 	   memif_ring_t * ring = memif_get_ring (mif, MEMIF_RING_S2M, i);
-	   vlib_cli_output (vm, "  slave-to-master ring %u:", i);
-	   vlib_cli_output (vm, "    head %u tail %u", ring->head, ring->tail);
+	   if (ring)
+	     {
+	       vlib_cli_output (vm, "  slave-to-master ring %u:", i);
+	       vlib_cli_output (vm, "    head %u tail %u", ring->head, ring->tail);
+	     }
 	 }
-       for (i=0; i< mif->num_m2s_rings; i++)
+       for (i=0; i < mif->num_m2s_rings; i++)
          {
 	   memif_ring_t * ring = memif_get_ring (mif, MEMIF_RING_M2S, i);
-	   vlib_cli_output (vm, "  master-to-slave ring %u:", i);
-	   vlib_cli_output (vm, "    head %u tail %u", ring->head, ring->tail);
+	   if (ring)
+	     {
+	       vlib_cli_output (vm, "  master-to-slave ring %u:", i);
+	       vlib_cli_output (vm, "    head %u tail %u", ring->head, ring->tail);
+	     }
 	 }
     }));
   /* *INDENT-ON* */

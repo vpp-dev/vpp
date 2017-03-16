@@ -220,10 +220,10 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
     }
 
   vlib_buffer_free (vm, vlib_frame_args (frame), frame->n_vectors);
-  if (mif->int_fd > 0)
+  if (mif->interrupt_line.fd > 0)
     {
       u8 b = rid;
-      write (mif->int_fd, &b, sizeof (b));
+      write (mif->interrupt_line.fd, &b, sizeof (b));
     }
 
   return frame->n_vectors;
@@ -272,13 +272,23 @@ static clib_error_t *
 memif_interface_admin_up_down (vnet_main_t * vnm, u32 hw_if_index, u32 flags)
 {
   memif_main_t *apm = &memif_main;
+  memif_msg_t msg;
   vnet_hw_interface_t *hw = vnet_get_hw_interface (vnm, hw_if_index);
   memif_if_t *mif = pool_elt_at_index (apm->interfaces, hw->dev_instance);
 
   if (flags & VNET_SW_INTERFACE_FLAG_ADMIN_UP)
     mif->flags |= MEMIF_IF_FLAG_ADMIN_UP;
   else
-    mif->flags &= ~MEMIF_IF_FLAG_ADMIN_UP;
+    {
+      mif->flags &= ~MEMIF_IF_FLAG_ADMIN_UP;
+      if (!(mif->flags & MEMIF_IF_FLAG_DELETING)
+	  && mif->connection.index != ~0)
+	{
+	  msg.version = MEMIF_VERSION;
+	  msg.type = MEMIF_MSG_TYPE_DISCONNECT;
+	  send (mif->connection.fd, &msg, sizeof (msg), 0);
+	}
+    }
 
   return 0;
 }

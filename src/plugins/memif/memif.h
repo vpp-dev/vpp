@@ -17,14 +17,25 @@
 
 typedef struct
 {
+  u16 version;
+#define MEMIF_VERSION_MAJOR 0
+#define MEMIF_VERSION_MINOR 1
+#define MEMIF_VERSION ((MEMIF_VERSION_MAJOR << 8) | MEMIF_VERSION_MINOR)
   u8 type;
-#define MEMIF_MSG_TYPE_CONNECT 0
-#define MEMIF_MSG_TYPE_DISCONNECT 1
+#define MEMIF_MSG_TYPE_CONNECT_REQ  0
+#define MEMIF_MSG_TYPE_CONNECT_RESP 1
+#define MEMIF_MSG_TYPE_DISCONNECT   2
+
+  /* Connection-request parameters: */
+  u64 key;
   u8 log2_ring_size;
   u16 num_s2m_rings;
   u16 num_m2s_rings;
   u16 buffer_size;
   u32 shared_mem_size;
+
+  /* Connection-response parameters: */
+  u8 retval;
 } memif_msg_t;
 
 typedef struct __attribute__ ((packed))
@@ -62,26 +73,48 @@ typedef struct
 
 typedef struct
 {
+  int fd;
+  u32 index;
+} memif_file_t;
+
+typedef struct
+{
+  uword index;
+  dev_t sock_dev;
+  ino_t sock_ino;
+  memif_file_t socket;
+  u16 usage_counter;
+} memif_listener_t;
+
+typedef struct
+{
+  uword index;
+  memif_file_t connection;
+  uword listener_index;
+} memif_pending_connection_t;
+
+typedef struct
+{
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
   volatile u32 *lockp;
   u32 flags;
-#define MEMIF_IF_FLAG_ADMIN_UP (1 << 0)
-#define MEMIF_IF_FLAG_IS_SLAVE (1 << 1)
-#define MEMIF_IF_FLAG_CONNECTED (1 << 2)
+#define MEMIF_IF_FLAG_ADMIN_UP   (1 << 0)
+#define MEMIF_IF_FLAG_IS_SLAVE   (1 << 1)
+#define MEMIF_IF_FLAG_CONNECTING (1 << 2)
+#define MEMIF_IF_FLAG_CONNECTED  (1 << 3)
+#define MEMIF_IF_FLAG_DELETING   (1 << 4)
 
+  u64 key;
   uword if_index;
   u32 hw_if_index;
   u32 sw_if_index;
 
   u32 per_interface_next_index;
 
-  int sock_fd;
-  int conn_fd;
-  int int_fd;
-  u32 sock_file_index;
-  u32 conn_file_index;
-  u32 int_file_index;
-  u8 *socket_file_name;
+  uword listener_index;
+  memif_file_t connection;
+  memif_file_t interrupt_line;
+  u8 *socket_filename;
 
   void **regions;
 
@@ -100,7 +133,14 @@ typedef struct
 typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
+  /* pool of all memory interfaces */
   memif_if_t *interfaces;
+
+  /* pool of all listeners */
+  memif_listener_t *listeners;
+
+  /* pool of pending connections */
+  memif_pending_connection_t *pending_connections;
 
   /* bitmap of pending rx interfaces */
   uword *pending_input_bitmap;
@@ -108,14 +148,18 @@ typedef struct
   /* rx buffer cache */
   u32 **rx_buffers;
 
-  /* hash of socket file names */
-  mhash_t if_index_by_sock_file_name;
+  /* hash of all registered keys */
+  mhash_t if_index_by_key;
 
   /* first cpu index */
   u32 input_cpu_first_index;
 
   /* total cpu count */
   u32 input_cpu_count;
+
+  /* configuration */
+  u8 *default_socket_filename;
+#define MEMIF_DEFAULT_SOCKET_FILENAME  "/var/vpp/memif.sock"
 } memif_main_t;
 
 extern memif_main_t memif_main;
@@ -124,16 +168,20 @@ extern vlib_node_registration_t memif_input_node;
 
 typedef struct
 {
-  u8 *socket_file_name;
+  u64 key;
+  u8 *socket_filename;
   u8 is_master;
   u8 log2_ring_size;
+  u16 buffer_size;
+  u8 hw_addr_set;
+  u8 hw_addr[6];
 
   /* return */
   u32 sw_if_index;
 } memif_create_if_args_t;
 
 int memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args);
-int memif_delete_if (vlib_main_t * vm, u8 * host_if_name);
+int memif_delete_if (vlib_main_t * vm, u64 key);
 
 #ifndef __NR_memfd_create
 #if defined __x86_64__
@@ -162,6 +210,8 @@ typedef enum
 static_always_inline memif_ring_t *
 memif_get_ring (memif_if_t * mif, memif_ring_type_t type, u16 ring_num)
 {
+  if (vec_len (mif->regions) == 0)
+    return NULL;
   void *p = mif->regions[0];
   int ring_size =
     sizeof (memif_ring_t) +
