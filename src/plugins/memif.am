@@ -13,11 +13,20 @@
 
 vppplugins_LTLIBRARIES += memif_plugin.la
 
-memif_plugin_la_SOURCES = memif/memif.c  \
-	memif/cli.c \
-	memif/node.c \
-	memif/device.c
+memif_plugin_la_SOURCES = memif/memif.c   \
+	memif/memif_api.c                 \
+	memif/cli.c                       \
+	memif/node.c                      \
+	memif/device.c                    \
+	memif/memif_plugin.api.h
 
 noinst_HEADERS += memif/memif.h
+
+nobase_apiinclude_HEADERS +=              \
+		  memif/memif_all_api_h.h \
+		  memif/memif_msg_enum.h  \
+		  memif/memif.api.h
+
+API_FILES += memif/memif.api
 
 # vi:syntax=automake

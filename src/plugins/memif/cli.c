@@ -30,9 +30,9 @@ memif_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 {
   unformat_input_t _line_input, *line_input = &_line_input;
   int r;
-  u32 ring_size = 1024;
+  u32 ring_size = MEMIF_DEFAULT_RING_SIZE;
   memif_create_if_args_t args = { 0 };
-  args.buffer_size = 2048;
+  args.buffer_size = MEMIF_DEFAULT_BUFFER_SIZE;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
