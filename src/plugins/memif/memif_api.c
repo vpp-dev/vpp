@@ -287,15 +287,15 @@ setup_message_id_table (memif_main_t * mm, api_main_t * am)
 clib_error_t *
 memif_plugin_api_hookup (vlib_main_t * vm)
 {
- memif_main_t *mm = &memif_main;
- api_main_t *am = &api_main;
- u8 *name;
+  memif_main_t *mm = &memif_main;
+  api_main_t *am = &api_main;
+  u8 *name;
 
- /* Construct the API name */
- name = format (0, "memif_%08x%c", api_version, 0);
+  /* Construct the API name */
+  name = format (0, "memif_%08x%c", api_version, 0);
 
- /* Ask for a correctly-sized block of API message decode slots */
- mm->msg_id_base = vl_msg_api_get_msg_ids
+  /* Ask for a correctly-sized block of API message decode slots */
+  mm->msg_id_base = vl_msg_api_get_msg_ids
 	((char *) name, VL_MSG_FIRST_AVAILABLE);
 
 #define _(N,n)                                                  \
