@@ -710,8 +710,8 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
   mif->if_index = mif - mm->interfaces;
   mif->sw_if_index = mif->hw_if_index = mif->per_interface_next_index = ~0;
   mif->listener_index = ~0;
-  mif->connection.index = ~0;
-  mif->connection.fd = -1;
+  mif->connection.index = mif->interrupt_line.index = ~0;
+  mif->connection.fd = mif->interrupt_line.fd = -1;
 
   if (tm->n_vlib_mains > 1)
     {
@@ -944,6 +944,9 @@ memif_init (vlib_main_t * vm)
 
   mm->input_cpu_first_index = 0;
   mm->input_cpu_count = 1;
+
+  /* initialize binary API */
+  memif_plugin_api_hookup (vm);
 
   /* find out which cpus will be used for input */
   p = hash_get_mem (tm->thread_registrations_by_name, "workers");

@@ -29,9 +29,11 @@ typedef struct
   /* Connection-request parameters: */
   u64 key;
   u8 log2_ring_size;
+#define MEMIF_DEFAULT_RING_SIZE 1024
   u16 num_s2m_rings;
   u16 num_m2s_rings;
   u16 buffer_size;
+#define MEMIF_DEFAULT_BUFFER_SIZE 2048
   u32 shared_mem_size;
 
   /* Connection-response parameters: */
@@ -133,6 +135,10 @@ typedef struct
 typedef struct
 {
   CLIB_CACHE_LINE_ALIGN_MARK (cacheline0);
+
+  /** API message ID base */
+  u16 msg_id_base;
+
   /* pool of all memory interfaces */
   memif_if_t *interfaces;
 
@@ -182,6 +188,7 @@ typedef struct
 
 int memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args);
 int memif_delete_if (vlib_main_t * vm, u64 key);
+clib_error_t *memif_plugin_api_hookup (vlib_main_t * vm);
 
 #ifndef __NR_memfd_create
 #if defined __x86_64__
