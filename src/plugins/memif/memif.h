@@ -172,6 +172,12 @@ extern memif_main_t memif_main;
 extern vnet_device_class_t memif_device_class;
 extern vlib_node_registration_t memif_input_node;
 
+enum
+{
+  MEMIF_PROCESS_EVENT_START = 1,
+  MEMIF_PROCESS_EVENT_STOP = 2,
+} memif_process_event_t;
+
 typedef struct
 {
   u64 key;
