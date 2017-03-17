@@ -885,8 +885,11 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
 #endif
 
 signal:
-  vlib_process_signal_event (vm, memif_process_node.index,
-			     MEMIF_PROCESS_EVENT_START, 0);
+  if (pool_elts (mm->interfaces) == 1)
+    {
+      vlib_process_signal_event (vm, memif_process_node.index,
+				 MEMIF_PROCESS_EVENT_START, 0);
+    }
   return 0;
 
 error:
