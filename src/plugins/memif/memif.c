@@ -550,9 +550,10 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
   memif_if_t *mif;
   struct sockaddr_un sun;
   int sockfd;
-  f64 timeout = 3153600000.0 /* 100 years */ ;
-  uword *event_data = 0;
+  uword *event_data = 0, event_type;
   unix_file_t template = { 0 };
+  u8 enabled = 0;
+  f64 start_time, last_run_duration = 0, now;
 
   sockfd = socket (AF_UNIX, SOCK_STREAM, 0);
   sun.sun_family = AF_UNIX;
@@ -560,16 +561,40 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 
   while (1)
     {
-      vlib_process_wait_for_event_or_clock (vm, timeout);
-      vlib_process_get_events (vm, &event_data);
+      if (enabled)
+	vlib_process_wait_for_event_or_clock (vm, (f64)3 - last_run_duration);
+      else
+	vlib_process_wait_for_event (vm);
+
+      event_type = vlib_process_get_events (vm, &event_data);
       vec_reset_length (event_data);
 
-      /* TODO: replace timeout with vlib_process_wait_for_event(_or_clock) */
-      timeout = 3.0;
+      switch (event_type)
+	{
+	case ~0:
+	  break;
+	case MEMIF_PROCESS_EVENT_START:
+	  enabled = 1;
+	  break;
+	case MEMIF_PROCESS_EVENT_STOP:
+	  enabled = 0;
+	  continue;
+	default:
+	  ASSERT (0);
+	}
 
+      last_run_duration = start_time = vlib_time_now (vm);
       /* *INDENT-OFF* */
       pool_foreach (mif, mm->interfaces,
         ({
+	  /* Allow no more than 10us without a pause */
+	  now = vlib_time_now (vm);
+	  if (now > start_time + 10e-6)
+	    {
+	      vlib_process_suspend (vm, 100e-6);	/* suspend for 100 us */
+	      start_time = vlib_time_now (vm);
+	    }
+
 	  if ((mif->flags & MEMIF_IF_FLAG_ADMIN_UP) == 0)
 	    continue;
 
@@ -602,6 +627,7 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 	    }
         }));
       /* *INDENT-ON* */
+      last_run_duration = vlib_time_now (vm) - last_run_duration;
     }
   return 0;
 }
@@ -859,7 +885,8 @@ memif_create_if (vlib_main_t * vm, memif_create_if_args_t * args)
 #endif
 
 signal:
-  vlib_process_signal_event (vm, memif_process_node.index, 0, 0);
+  vlib_process_signal_event (vm, memif_process_node.index,
+			     MEMIF_PROCESS_EVENT_START, 0);
   return 0;
 
 error:
@@ -897,6 +924,12 @@ memif_delete_if (vlib_main_t * vm, u64 key)
   ethernet_delete_interface (vnm, mif->hw_if_index);
   mif->hw_if_index = ~0;
   close_memif_if (mm, mif);
+
+  if (pool_elts (mm->interfaces) == 0)
+    {
+      vlib_process_signal_event (vm, memif_process_node.index,
+				 MEMIF_PROCESS_EVENT_STOP, 0);
+    }
 
 #if 0
   if (tm->n_vlib_mains > 1 && pool_elts (mm->interfaces) == 0)
