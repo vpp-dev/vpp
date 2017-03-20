@@ -663,7 +663,7 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 		  sockfd = socket (AF_UNIX, SOCK_STREAM, 0);
 		  if (sockfd < 0)
 		    {
-		      DEBUG_UNIX_LOG ("socket");
+		      DEBUG_UNIX_LOG ("socket AF_UNIX");
 		      return 0;
 		    }
 	        }
