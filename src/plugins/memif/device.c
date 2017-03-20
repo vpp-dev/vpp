@@ -223,7 +223,7 @@ memif_interface_tx_inline (vlib_main_t * vm, vlib_node_runtime_t * node,
   if (mif->interrupt_line.fd > 0)
     {
       u8 b = rid;
-      write (mif->interrupt_line.fd, &b, sizeof (b));
+      CLIB_UNUSED (int r) = write (mif->interrupt_line.fd, &b, sizeof (b));
     }
 
   return frame->n_vectors;
