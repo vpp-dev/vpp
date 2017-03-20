@@ -34,6 +34,15 @@
 #include <vpp/app/version.h>
 #include <memif/memif.h>
 
+#define MEMIF_DEBUG 1
+
+#if MEMIF_DEBUG == 1
+  #define DEBUG_LOG(...) clib_warning(__VA_ARGS__)
+  #define DEBUG_UNIX_LOG(...) clib_unix_warning(__VA_ARGS__)
+#else
+  #define DEBUG_LOG(...)
+#endif
+
 memif_main_t memif_main;
 
 static clib_error_t *memif_conn_fd_read_ready (unix_file_t * uf);
@@ -119,10 +128,11 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
   void *shm;
   uword *p;
   u8 retval = 0;
+  static clib_error_t *error = 0;
 
   if (shm_fd == -1)
     {
-      clib_warning
+      DEBUG_LOG
 	("Connection request is missing shared memory file descriptor");
       retval = 1;
       goto response;
@@ -130,7 +140,7 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   if (int_fd == -1)
     {
-      clib_warning
+      DEBUG_LOG
 	("Connection request is missing interrupt line file descriptor");
       retval = 2;
       goto response;
@@ -138,7 +148,7 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   if (slave_cr == NULL)
     {
-      clib_warning ("Connection request is missing slave credentials");
+      DEBUG_LOG ("Connection request is missing slave credentials");
       retval = 3;
       goto response;
     }
@@ -146,7 +156,7 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
   p = mhash_get (&mm->if_index_by_key, &req->key);
   if (!p)
     {
-      clib_warning ("Connection request with unmatched key (%d)", req->key);
+      DEBUG_LOG ("Connection request with unmatched key (%d)", req->key);
       retval = 4;
       goto response;
     }
@@ -154,7 +164,7 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
   mif = vec_elt_at_index (mm->interfaces, *p);
   if (mif->listener_index != pending_connection->listener_index)
     {
-      clib_warning
+      DEBUG_LOG
 	("Connection request with non-matching listener (%d vs. %d)",
 	 pending_connection->listener_index, mif->listener_index);
       retval = 5;
@@ -163,14 +173,14 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   if (mif->flags & MEMIF_IF_FLAG_IS_SLAVE)
     {
-      clib_warning ("Memif slave does not accept connection requests");
+      DEBUG_LOG ("Memif slave does not accept connection requests");
       retval = 6;
       goto response;
     }
 
   if (mif->connection.fd != -1)
     {
-      clib_warning ("Memif %d is already connected", mif->key);
+      DEBUG_LOG ("Memif %d is already connected", mif->key);
       retval = 7;
       goto response;
     }
@@ -184,7 +194,7 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   if (req->shared_mem_size < sizeof (memif_shm_t))
     {
-      clib_warning
+      DEBUG_LOG
 	("Unexpectedly small shared memory segment received from slave.");
       retval = 9;
       goto response;
@@ -194,15 +204,16 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
        mmap (NULL, req->shared_mem_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 	     shm_fd, 0)) == MAP_FAILED)
     {
-      clib_unix_warning
+      DEBUG_UNIX_LOG
 	("Failed to map shared memory segment received from slave memif");
+      error = clib_error_return_unix (0, "mmap fd %d", shm_fd);
       retval = 10;
       goto response;
     }
 
   if (((memif_shm_t *) shm)->cookie != 0xdeadbeef)
     {
-      clib_warning
+      DEBUG_LOG
 	("Possibly corrupted shared memory segment received from slave memif");
       munmap (shm, req->shared_mem_size);
       retval = 11;
@@ -238,7 +249,7 @@ response:
   resp.type = MEMIF_MSG_TYPE_CONNECT_RESP;
   resp.retval = retval;
   send (fd, &resp, sizeof (resp), 0);
-  return 0;
+  return error;
 }
 
 static clib_error_t *
@@ -248,13 +259,13 @@ memif_process_connect_resp (memif_if_t * mif, memif_msg_t * resp)
 
   if ((mif->flags & MEMIF_IF_FLAG_IS_SLAVE) == 0)
     {
-      clib_warning ("Memif master does not accept connection responses");
+      DEBUG_LOG ("Memif master does not accept connection responses");
       return 0;
     }
 
   if ((mif->flags & MEMIF_IF_FLAG_CONNECTING) == 0)
     {
-      clib_warning ("Unexpected connection response");
+      DEBUG_LOG ("Unexpected connection response");
       return 0;
     }
 
@@ -282,6 +293,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
   memif_msg_t msg = { 0 };
   struct cmsghdr *cmsg;
   ssize_t size;
+  static clib_error_t *error = 0;
 
   iov[0].iov_base = (void *) &msg;
   iov[0].iov_len = sizeof (memif_msg_t);
@@ -301,26 +313,21 @@ memif_conn_fd_read_ready (unix_file_t * uf)
   size = recvmsg (uf->file_descriptor, &mh, 0);
   if (size != sizeof (memif_msg_t))
     {
-      if (0 == size)
+      if (size != 0)
 	{
-	  if (pending_connection)
-	    memif_remove_pending_connection (pending_connection);
-	  else
-	    memif_disconnect (vm, mif);
-	  return 0;
+	  DEBUG_UNIX_LOG ("Malformed message received on fd %d",
+			  uf->file_descriptor);
+	  error = clib_error_return_unix (0, "recvmsg fd %d",
+					  uf->file_descriptor);
 	}
-      // TODO better error handling
-      clib_unix_error ("recvmsg");
-      return 0;
+      goto disconnect;
     }
 
   /* check version of the sender's memif plugin */
   if (msg.version != MEMIF_VERSION)
     {
-      clib_warning ("Memif version mismatch");
-      if (pending_connection)
-	memif_remove_pending_connection (pending_connection);
-      return 0;
+      DEBUG_LOG ("Memif version mismatch");
+      goto disconnect;
     }
 
   /* process the message based on its type */
@@ -329,7 +336,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
     case MEMIF_MSG_TYPE_CONNECT_REQ:
       if (pending_connection == 0)
 	{
-	  clib_warning ("Received unexpected connection request");
+	  DEBUG_LOG ("Received unexpected connection request");
 	  return 0;
 	}
 
@@ -356,24 +363,27 @@ memif_conn_fd_read_ready (unix_file_t * uf)
     case MEMIF_MSG_TYPE_CONNECT_RESP:
       if (mif == 0)
 	{
-	  clib_warning ("Received unexpected connection response");
+	  DEBUG_LOG ("Received unexpected connection response");
 	  return 0;
 	}
       return memif_process_connect_resp (mif, &msg);
 
     case MEMIF_MSG_TYPE_DISCONNECT:
-      if (pending_connection)
-	memif_remove_pending_connection (pending_connection);
-      else
-	memif_disconnect (vm, mif);
-      return 0;
+      goto disconnect;
 
     default:
-      clib_warning ("Received unknown message type");
-      return 0;
+      DEBUG_LOG ("Received unknown message type");
+      goto disconnect;
     }
 
   return 0;
+
+disconnect:
+  if (pending_connection)
+    memif_remove_pending_connection (pending_connection);
+  else
+    memif_disconnect (vm, mif);
+  return error;
 }
 
 static clib_error_t *
@@ -416,7 +426,7 @@ memif_conn_fd_accept_ready (unix_file_t * uf)
 		    (struct sockaddr *) &client, (socklen_t *) & addr_len);
 
   if (conn_fd < 0)
-    return clib_error_return_unix (0, "accept");
+    return clib_error_return_unix (0, "accept fd %d", uf->file_descriptor);
 
   pool_get (mm->pending_connections, pending_connection);
   pending_connection->index = pending_connection - mm->pending_connections;
@@ -439,13 +449,13 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   struct msghdr mh = { 0 };
   struct iovec iov[1];
   struct cmsghdr *cmsg;
-  int mfd;
+  int mfd = -1;
   int rv;
-  int fd_array[2];
+  int fd_array[2] = { -1, -1 };
   char ctl[CMSG_SPACE (sizeof (fd_array))];
   memif_ring_t *ring = NULL;
   int i, j;
-  void *shm;
+  void *shm = 0;
   u64 buffer_offset;
   unix_file_t template = { 0 };
 
@@ -466,19 +476,30 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
     mif->buffer_size * (1 << mif->log2_ring_size) * (mif->num_s2m_rings +
 						     mif->num_m2s_rings);
 
-  // FIXME Error Handling
   if ((mfd = memfd_create ("shared mem", MFD_ALLOW_SEALING)) == -1)
-    clib_unix_error ("memfd_create");
+    {
+      DEBUG_LOG ("Failed to create anonymous file");
+      goto error;
+    }
 
   if ((fcntl (mfd, F_ADD_SEALS, F_SEAL_SHRINK)) == -1)
-    clib_unix_error ("fcntl");
+    {
+      DEBUG_UNIX_LOG ("Failed to seal an anonymous file off from truncating");
+      goto error;
+    }
 
   if ((ftruncate (mfd, msg.shared_mem_size)) == -1)
-    clib_unix_error ("ftruncate");
+    {
+      DEBUG_UNIX_LOG ("Failed to extend the size of an anonymous file");
+      goto error;
+    }
 
   if ((shm = mmap (NULL, msg.shared_mem_size, PROT_READ | PROT_WRITE,
 		   MAP_SHARED, mfd, 0)) == MAP_FAILED)
-    clib_unix_error ("mmap");
+    {
+      DEBUG_UNIX_LOG ("Failed to map anonymous file into memory");
+      goto error;
+    }
 
   vec_add1 (mif->regions, shm);
   ((memif_shm_t *) mif->regions[0])->cookie = 0xdeadbeef;
@@ -515,8 +536,11 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   mh.msg_iovlen = 1;
 
   /* create interrupt socket */
-  if (socketpair(AF_UNIX, SOCK_STREAM, 0, fd_array) < 0)
-    clib_unix_error ("socketpair");
+  if (socketpair (AF_UNIX, SOCK_STREAM, 0, fd_array) < 0)
+    {
+      DEBUG_UNIX_LOG ("Failed to create a pair of connected sockets");
+      goto error;
+    }
 
   mif->interrupt_line.fd = fd_array[0];
   template.read_function = memif_int_fd_read_ready;
@@ -537,10 +561,26 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   mif->flags |= MEMIF_IF_FLAG_CONNECTING;
   rv = sendmsg (mif->connection.fd, &mh, 0);
   if (rv < 0)
-    clib_unix_warning ("sendmsg");
+    {
+      DEBUG_UNIX_LOG ("Failed to send memif connection request");
+      goto error;
+    }
 
+  /* No need to keep the descriptor open,
+   * mmap creates an extra reference to the underlying file */
+  close (mfd);
+  mfd = -1;
   /* This FD is given to peer, so we can close it */
   close (fd_array[1]);
+  fd_array[1] = -1;
+  return;
+
+error:
+  if (mfd > -1)
+    close (mfd);
+  if (fd_array[1] > -1)
+    close (fd_array[1]);
+  memif_disconnect (vm, mif);
 }
 
 static uword
@@ -622,7 +662,10 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 		  /* grab another fd */
 		  sockfd = socket (AF_UNIX, SOCK_STREAM, 0);
 		  if (sockfd < 0)
-		    return 0;
+		    {
+		      DEBUG_UNIX_LOG ("socket AF_UNIX");
+		      return 0;
+		    }
 	        }
 	    }
         }));
@@ -641,7 +684,7 @@ VLIB_REGISTER_NODE (memif_process_node,static) = {
 /* *INDENT-ON* */
 
 static void
-close_memif_if (memif_main_t * mm, memif_if_t * mif)
+memif_close_if (memif_main_t * mm, memif_if_t * mif)
 {
   vlib_main_t *vm = vlib_get_main ();
   memif_listener_t *listener = 0;
@@ -898,7 +941,7 @@ error:
       ethernet_delete_interface (vnm, mif->hw_if_index);
       mif->hw_if_index = ~0;
     }
-  close_memif_if (mm, mif);
+  memif_close_if (mm, mif);
   return ret;
 }
 
@@ -926,7 +969,7 @@ memif_delete_if (vlib_main_t * vm, u64 key)
   /* remove the interface */
   ethernet_delete_interface (vnm, mif->hw_if_index);
   mif->hw_if_index = ~0;
-  close_memif_if (mm, mif);
+  memif_close_if (mm, mif);
 
   if (pool_elts (mm->interfaces) == 0)
     {
