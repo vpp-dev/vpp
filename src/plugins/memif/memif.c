@@ -336,7 +336,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
       if (pending_connection == 0)
 	{
 	  DEBUG_LOG ("Received unexpected connection request");
-	  goto disconnect;
+	  return 0;
 	}
 
       /* Read anciliary data */
@@ -363,7 +363,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
       if (mif == 0)
 	{
 	  DEBUG_LOG ("Received unexpected connection response");
-	  goto disconnect;
+	  return 0;
 	}
       return memif_process_connect_resp (mif, &msg);
 
