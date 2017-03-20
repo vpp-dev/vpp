@@ -38,6 +38,7 @@
 
 #if MEMIF_DEBUG == 1
   #define DEBUG_LOG(...) clib_warning(__VA_ARGS__)
+  #define DEBUG_UNIX_LOG(...) clib_unix_warning(__VA_ARGS__)
 #else
   #define DEBUG_LOG(...)
 #endif
@@ -203,7 +204,7 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
        mmap (NULL, req->shared_mem_size, PROT_READ | PROT_WRITE, MAP_SHARED,
 	     shm_fd, 0)) == MAP_FAILED)
     {
-      DEBUG_LOG
+      DEBUG_UNIX_LOG
 	("Failed to map shared memory segment received from slave memif");
       error = clib_error_return_unix (0, "mmap fd %d", shm_fd);
       retval = 10;
@@ -314,8 +315,8 @@ memif_conn_fd_read_ready (unix_file_t * uf)
     {
       if (size != 0)
 	{
-	  DEBUG_LOG ("Malformed message received on fd %d",
-		     uf->file_descriptor);
+	  DEBUG_UNIX_LOG ("Malformed message received on fd %d",
+			  uf->file_descriptor);
 	  error = clib_error_return_unix (0, "recvmsg fd %d",
 					  uf->file_descriptor);
 	}
@@ -441,7 +442,7 @@ memif_conn_fd_accept_ready (unix_file_t * uf)
   return 0;
 }
 
-static int
+static void
 memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
 {
   memif_msg_t msg;
@@ -449,7 +450,7 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   struct iovec iov[1];
   struct cmsghdr *cmsg;
   int mfd = -1;
-  int rv = 0;
+  int rv;
   int fd_array[2] = { -1, -1 };
   char ctl[CMSG_SPACE (sizeof (fd_array))];
   memif_ring_t *ring = NULL;
@@ -478,29 +479,25 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   if ((mfd = memfd_create ("shared mem", MFD_ALLOW_SEALING)) == -1)
     {
       DEBUG_LOG ("Failed to create anonymous file");
-      rv = VNET_API_ERROR_SYSCALL_ERROR_1;
       goto error;
     }
 
   if ((fcntl (mfd, F_ADD_SEALS, F_SEAL_SHRINK)) == -1)
     {
-      DEBUG_LOG ("Failed to seal an anonymous file off from truncating");
-      rv = VNET_API_ERROR_SYSCALL_ERROR_2;
+      DEBUG_UNIX_LOG ("Failed to seal an anonymous file off from truncating");
       goto error;
     }
 
   if ((ftruncate (mfd, msg.shared_mem_size)) == -1)
     {
-      DEBUG_LOG ("Failed to extend the size of an anonymous file");
-      rv = VNET_API_ERROR_SYSCALL_ERROR_3;
+      DEBUG_UNIX_LOG ("Failed to extend the size of an anonymous file");
       goto error;
     }
 
   if ((shm = mmap (NULL, msg.shared_mem_size, PROT_READ | PROT_WRITE,
 		   MAP_SHARED, mfd, 0)) == MAP_FAILED)
     {
-      DEBUG_LOG ("Failed to map anonymous file into memory");
-      rv = VNET_API_ERROR_SYSCALL_ERROR_4;
+      DEBUG_UNIX_LOG ("Failed to map anonymous file into memory");
       goto error;
     }
 
@@ -541,8 +538,7 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   /* create interrupt socket */
   if (socketpair (AF_UNIX, SOCK_STREAM, 0, fd_array) < 0)
     {
-      DEBUG_LOG ("Failed to create a pair of connected sockets");
-      rv = VNET_API_ERROR_SYSCALL_ERROR_5;
+      DEBUG_UNIX_LOG ("Failed to create a pair of connected sockets");
       goto error;
     }
 
@@ -566,8 +562,7 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   rv = sendmsg (mif->connection.fd, &mh, 0);
   if (rv < 0)
     {
-      DEBUG_LOG ("Failed to send memif connection request");
-      rv = VNET_API_ERROR_SYSCALL_ERROR_6;
+      DEBUG_UNIX_LOG ("Failed to send memif connection request");
       goto error;
     }
 
@@ -578,7 +573,7 @@ memif_connect_master (vlib_main_t * vm, memif_if_t * mif)
   /* This FD is given to peer, so we can close it */
   close (fd_array[1]);
   fd_array[1] = -1;
-  return 0;
+  return;
 
 error:
   if (mfd > -1)
@@ -586,7 +581,6 @@ error:
   if (fd_array[1] > -1)
     close (fd_array[1]);
   memif_disconnect (vm, mif);
-  return rv;
 }
 
 static uword
@@ -669,7 +663,7 @@ memif_process (vlib_main_t * vm, vlib_node_runtime_t * rt, vlib_frame_t * f)
 		  sockfd = socket (AF_UNIX, SOCK_STREAM, 0);
 		  if (sockfd < 0)
 		    {
-		      clib_unix_warning ("socket");
+		      DEBUG_UNIX_LOG ("socket");
 		      return 0;
 		    }
 	        }
