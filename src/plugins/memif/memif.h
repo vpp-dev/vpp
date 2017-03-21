@@ -93,7 +93,7 @@ typedef struct
   uword index;
   memif_file_t connection;
   uword listener_index;
-} memif_pending_connection_t;
+} memif_pending_conn_t;
 
 typedef struct
 {
@@ -146,7 +146,7 @@ typedef struct
   memif_listener_t *listeners;
 
   /* pool of pending connections */
-  memif_pending_connection_t *pending_connections;
+  memif_pending_conn_t *pending_conns;
 
   /* bitmap of pending rx interfaces */
   uword *pending_input_bitmap;

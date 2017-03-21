@@ -26,6 +26,7 @@
 #include <sys/uio.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <inttypes.h>
 
 #include <vlib/vlib.h>
 #include <vlib/unix/unix.h>
@@ -56,14 +57,14 @@ memif_eth_flag_change (vnet_main_t * vnm, vnet_hw_interface_t * hi, u32 flags)
 }
 
 static void
-memif_remove_pending_connection (
-	memif_pending_connection_t * pending_connection)
+memif_remove_pending_conn (
+	memif_pending_conn_t * pending_conn)
 {
   memif_main_t *mm = &memif_main;
 
   unix_file_del (&unix_main,
-		 unix_main.file_pool + pending_connection->connection.index);
-  pool_put (mm->pending_connections, pending_connection);
+		 unix_main.file_pool + pending_conn->connection.index);
+  pool_put (mm->pending_conns, pending_conn);
 }
 
 static void
@@ -114,13 +115,13 @@ memif_disconnect (vlib_main_t * vm, memif_if_t * mif)
 }
 
 static clib_error_t *
-memif_process_connect_req (memif_pending_connection_t * pending_connection,
+memif_process_connect_req (memif_pending_conn_t * pending_conn,
 			   memif_msg_t * req, struct ucred * slave_cr,
 			   int shm_fd, int int_fd)
 {
   memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
-  int fd = pending_connection->connection.fd;
+  int fd = pending_conn->connection.fd;
   unix_file_t *uf = 0;
   memif_if_t *mif = 0;
   memif_msg_t resp = { 0 };
@@ -156,17 +157,18 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
   p = mhash_get (&mm->if_index_by_key, &req->key);
   if (!p)
     {
-      DEBUG_LOG ("Connection request with unmatched key (%d)", req->key);
+      DEBUG_LOG
+	("Connection request with unmatched key (0x%" PRIx64 ")", req->key);
       retval = 4;
       goto response;
     }
 
   mif = vec_elt_at_index (mm->interfaces, *p);
-  if (mif->listener_index != pending_connection->listener_index)
+  if (mif->listener_index != pending_conn->listener_index)
     {
       DEBUG_LOG
 	("Connection request with non-matching listener (%d vs. %d)",
-	 pending_connection->listener_index, mif->listener_index);
+	 pending_conn->listener_index, mif->listener_index);
       retval = 5;
       goto response;
     }
@@ -180,7 +182,8 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   if (mif->connection.fd != -1)
     {
-      DEBUG_LOG ("Memif %d is already connected", mif->key);
+      DEBUG_LOG
+	("Memif with key 0x%" PRIx64 " is already connected", mif->key);
       retval = 7;
       goto response;
     }
@@ -237,10 +240,10 @@ memif_process_connect_req (memif_pending_connection_t * pending_connection,
 
   /* change context for future messages */
   uf = vec_elt_at_index (unix_main.file_pool,
-			 pending_connection->connection.index);
+			 pending_conn->connection.index);
   uf->private_data = mif->if_index << 1;
-  mif->connection = pending_connection->connection;
-  pool_put (mm->pending_connections, pending_connection);
+  mif->connection = pending_conn->connection;
+  pool_put (mm->pending_conns, pending_conn);
 
   memif_connect (vm, mif);
 
@@ -283,7 +286,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
   memif_main_t *mm = &memif_main;
   vlib_main_t *vm = vlib_get_main ();
   memif_if_t *mif = 0;
-  memif_pending_connection_t *pending_connection = 0;
+  memif_pending_conn_t *pending_conn = 0;
   int fd_array[2] = {-1, -1};
   char ctl[CMSG_SPACE (sizeof (fd_array)) + CMSG_SPACE (sizeof (struct ucred))]
     = { 0 };
@@ -304,7 +307,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
 
   /* grab the appropriate context */
   if (uf->private_data & 1)
-    pending_connection = vec_elt_at_index (mm->pending_connections,
+    pending_conn = vec_elt_at_index (mm->pending_conns,
 					   uf->private_data >> 1);
   else
     mif = vec_elt_at_index (mm->interfaces, uf->private_data >> 1);
@@ -334,7 +337,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
   switch (msg.type)
     {
     case MEMIF_MSG_TYPE_CONNECT_REQ:
-      if (pending_connection == 0)
+      if (pending_conn == 0)
 	{
 	  DEBUG_LOG ("Received unexpected connection request");
 	  return 0;
@@ -357,7 +360,7 @@ memif_conn_fd_read_ready (unix_file_t * uf)
 	  cmsg = CMSG_NXTHDR (&mh, cmsg);
 	}
 
-      return memif_process_connect_req (pending_connection, &msg, cr,
+      return memif_process_connect_req (pending_conn, &msg, cr,
 					fd_array[0], fd_array[1]);
 
     case MEMIF_MSG_TYPE_CONNECT_RESP:
@@ -379,8 +382,8 @@ memif_conn_fd_read_ready (unix_file_t * uf)
   return 0;
 
 disconnect:
-  if (pending_connection)
-    memif_remove_pending_connection (pending_connection);
+  if (pending_conn)
+    memif_remove_pending_conn (pending_conn);
   else
     memif_disconnect (vm, mif);
   return error;
@@ -413,7 +416,7 @@ memif_conn_fd_accept_ready (unix_file_t * uf)
 {
   memif_main_t *mm = &memif_main;
   memif_listener_t *listener = 0;
-  memif_pending_connection_t *pending_connection = 0;
+  memif_pending_conn_t *pending_conn = 0;
   int addr_len;
   struct sockaddr_un client;
   int conn_fd;
@@ -428,15 +431,15 @@ memif_conn_fd_accept_ready (unix_file_t * uf)
   if (conn_fd < 0)
     return clib_error_return_unix (0, "accept fd %d", uf->file_descriptor);
 
-  pool_get (mm->pending_connections, pending_connection);
-  pending_connection->index = pending_connection - mm->pending_connections;
-  pending_connection->listener_index = listener->index;
-  pending_connection->connection.fd = conn_fd;
+  pool_get (mm->pending_conns, pending_conn);
+  pending_conn->index = pending_conn - mm->pending_conns;
+  pending_conn->listener_index = listener->index;
+  pending_conn->connection.fd = conn_fd;
 
   template.read_function = memif_conn_fd_read_ready;
   template.file_descriptor = conn_fd;
-  template.private_data = (pending_connection->index << 1) | 1;
-  pending_connection->connection.index =
+  template.private_data = (pending_conn->index << 1) | 1;
+  pending_conn->connection.index =
 	unix_file_add (&unix_main, &template);
 
   return 0;
@@ -688,7 +691,7 @@ memif_close_if (memif_main_t * mm, memif_if_t * mif)
 {
   vlib_main_t *vm = vlib_get_main ();
   memif_listener_t *listener = 0;
-  memif_pending_connection_t *pending_connection = 0;
+  memif_pending_conn_t *pending_conn = 0;
 
   memif_disconnect (vm, mif);
 
@@ -700,11 +703,11 @@ memif_close_if (memif_main_t * mm, memif_if_t * mif)
 	  /* not used anymore -> remove the socket and pending connections */
 
 	  /* *INDENT-OFF* */
-	  pool_foreach (pending_connection, mm->pending_connections,
+	  pool_foreach (pending_conn, mm->pending_conns,
 	    ({
-	       if (pending_connection->listener_index == mif->listener_index)
+	       if (pending_conn->listener_index == mif->listener_index)
 	         {
-		   memif_remove_pending_connection (pending_connection);
+		   memif_remove_pending_conn (pending_conn);
 	         }
 	     }));
           /* *INDENT-ON* */
@@ -956,7 +959,8 @@ memif_delete_if (vlib_main_t * vm, u64 key)
   p = mhash_get (&mm->if_index_by_key, &key);
   if (p == NULL)
     {
-      clib_warning ("Memory interface with key %lu does not exist", key);
+      clib_warning ("Memory interface with key 0x%" PRIx64 " does not exist",
+		    key);
       return VNET_API_ERROR_SYSCALL_ERROR_1;
     }
   mif = pool_elt_at_index (mm->interfaces, p[0]);
@@ -984,32 +988,6 @@ memif_delete_if (vlib_main_t * vm, u64 key)
 
   return 0;
 }
-
-static clib_error_t *
-memif_config (vlib_main_t * vm, unformat_input_t * input)
-{
-  memif_main_t *mm = &memif_main;
-  u8 *default_socket_filename = 0;
-
-  while (unformat_check_input (input) != UNFORMAT_END_OF_INPUT)
-    {
-      if (unformat (input, "socket-filename %s", &default_socket_filename))
-	;
-      else
-	return clib_error_return (0, "unknown input '%U'",
-				  format_unformat_error, input);
-    }
-
-  if (default_socket_filename != 0)
-    {
-      vec_free (mm->default_socket_filename);
-      mm->default_socket_filename = default_socket_filename;
-    }
-
-  return 0;
-}
-
-VLIB_CONFIG_FUNCTION (memif_config, "memif");
 
 static clib_error_t *
 memif_init (vlib_main_t * vm)

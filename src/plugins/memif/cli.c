@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <inttypes.h>
 
 #include <vlib/vlib.h>
 #include <vlib/unix/unix.h>
@@ -40,7 +41,7 @@ memif_create_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "key %lu", &args.key))
+      if (unformat (line_input, "key 0x%" PRIx64, &args.key))
 	;
       else if (unformat (line_input, "socket %s", &args.socket_filename))
 	;
@@ -105,7 +106,7 @@ memif_delete_command_fn (vlib_main_t * vm, unformat_input_t * input,
 
   while (unformat_check_input (line_input) != UNFORMAT_END_OF_INPUT)
     {
-      if (unformat (line_input, "key %lu", &key))
+      if (unformat (line_input, "key 0x%" PRIx64, &key))
 	key_defined = 1;
       else
 	return clib_error_return (0, "unknown input `%U'",
@@ -143,7 +144,7 @@ memif_show_command_fn (vlib_main_t * vm, unformat_input_t * input,
     ({
        vlib_cli_output (vm, "interface %U", format_vnet_sw_if_index_name,
 			vnm, mif->sw_if_index);
-       vlib_cli_output (vm, "  key %lu file %s", mif->key,
+       vlib_cli_output (vm, "  key 0x%" PRIx64 " file %s", mif->key,
 			mif->socket_filename);
        vlib_cli_output (vm, "  listener %d conn-fd %d int-fd %d", mif->listener_index,
 			mif->connection.fd, mif->interrupt_line.fd);
