@@ -17,7 +17,11 @@ else
     fi
 fi
 
-TAG=$(echo ${vstring} | cut -d- -f1 | sed -e 's/^v//')
+if [[ -z $vstring ]]; then
+	TAG="0.0-unknown"
+else
+	TAG=$(echo ${vstring} | cut -d- -f1 | sed -e 's/^v//')
+fi
 ADD=$(echo ${vstring} | cut -s -d- -f2)
 
 git rev-parse 2> /dev/null
@@ -26,6 +30,11 @@ if [ $? == 0 ]; then
 else
     CMT=$(echo ${vstring} | cut -s -d- -f3,4)
 fi
+
+if [[ -z $CMT ]]; then
+	CMT="0.0-unknown"
+fi
+
 CMTR=$(echo $CMT | sed 's/-/_/')
 
 if [ -n "${BUILD_NUMBER}" ]; then
