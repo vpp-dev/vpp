@@ -961,7 +961,9 @@ VLIB_CLI_COMMAND (show_mpls_tunnel_command, static) = {
 static mpls_tunnel_t *
 mpls_tunnel_from_fib_node (fib_node_t *node)
 {
+#if (CLIB_DEBUG > 0)
     ASSERT(FIB_NODE_TYPE_MPLS_TUNNEL == node->fn_type);
+#endif
     return ((mpls_tunnel_t*) (((char*)node) -
                              STRUCT_OFFSET_OF(mpls_tunnel_t, mt_node)));
 }
