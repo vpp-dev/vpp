@@ -125,7 +125,6 @@ clib_netlink_set_if_namespace (int ifindex, char *net_ns)
   else
     s = format (0, "/var/run/netns/%s%c", net_ns, 0);
 
-  s = format (0, "/var/run/netns/%s%c", net_ns, 0);
   ns_fd = open ((char *) s, O_RDONLY);
   vec_free (s);
   if (ns_fd == -1)
