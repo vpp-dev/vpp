@@ -972,7 +972,7 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
 int nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
                                      snat_protocol_t proto, u32 vrf_id,
                                      nat44_lb_addr_port_t *locals, u8 is_add,
-                                     u8 twice_nat)
+                                     u8 twice_nat, u8 out2in_only)
 {
   snat_main_t * sm = &snat_main;
   snat_static_mapping_t *m;
@@ -1013,7 +1013,7 @@ int nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
 
       /* Find external address in allocated addresses and reserve port for
          address and port pair mapping when dynamic translations enabled */
-      if (!sm->static_mapping_only)
+      if (!(sm->static_mapping_only || out2in_only))
         {
           for (i = 0; i < vec_len (sm->addresses); i++)
             {
@@ -1057,6 +1057,7 @@ int nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
       m->external_port = e_port;
       m->proto = proto;
       m->twice_nat = twice_nat;
+      m->out2in_only = out2in_only;
 
       m_key.addr = m->external_addr;
       m_key.port = m->external_port;
@@ -1094,10 +1095,13 @@ int nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
       for (i = 0; i < vec_len (locals); i++)
         {
           m_key.addr = locals[i].addr;
-          m_key.port = locals[i].port;
-          kv.key = m_key.as_u64;
-          kv.value = m - sm->static_mappings;
-          clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 1);
+          if (!out2in_only)
+            {
+              m_key.port = locals[i].port;
+              kv.key = m_key.as_u64;
+              kv.value = m - sm->static_mappings;
+              clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 1);
+            }
           locals[i].prefix = (i == 0) ? locals[i].probability :\
             (locals[i - 1].prefix + locals[i].probability);
           vec_add1 (m->locals, locals[i]);
@@ -1120,7 +1124,7 @@ int nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
       fib_table_unlock (m->fib_index, FIB_PROTOCOL_IP4, FIB_SOURCE_PLUGIN_HI);
 
       /* Free external address port */
-      if (!sm->static_mapping_only)
+      if (!(sm->static_mapping_only || out2in_only))
         {
           for (i = 0; i < vec_len (sm->addresses); i++)
             {
@@ -1172,13 +1176,16 @@ int nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
       vec_foreach (local, m->locals)
         {
           m_key.addr = local->addr;
-          m_key.port = local->port;
-          m_key.fib_index = m->fib_index;
-          kv.key = m_key.as_u64;
-          if (clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 0))
+          if (!out2in_only)
             {
-              clib_warning ("static_mapping_by_local key del failed");
-              return VNET_API_ERROR_UNSPECIFIED;
+              m_key.port = local->port;
+              m_key.fib_index = m->fib_index;
+              kv.key = m_key.as_u64;
+              if (clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 0))
+                {
+                  clib_warning ("static_mapping_by_local key del failed");
+                  return VNET_API_ERROR_UNSPECIFIED;
+                }
             }
 
           m_key.port = clib_host_to_net_u16 (local->port);
@@ -2477,6 +2484,7 @@ add_lb_static_mapping_command_fn (vlib_main_t * vm,
   u8 proto_set = 0;
   nat44_lb_addr_port_t *locals = 0, local;
   u8 twice_nat = 0;
+  u8 out2in_only = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -2503,6 +2511,8 @@ add_lb_static_mapping_command_fn (vlib_main_t * vm,
         proto_set = 1;
       else if (unformat (line_input, "twice-nat"))
         twice_nat = 1;
+      else if (unformat (line_input, "out2in-only"))
+        out2in_only = 1;
       else if (unformat (line_input, "del"))
         is_add = 0;
       else
@@ -2526,7 +2536,7 @@ add_lb_static_mapping_command_fn (vlib_main_t * vm,
     }
 
   rv = nat44_add_del_lb_static_mapping (e_addr, (u16) e_port, proto, vrf_id,
-                                        locals, is_add, twice_nat);
+                                        locals, is_add, twice_nat, out2in_only);
 
   switch (rv)
     {
@@ -2559,7 +2569,7 @@ VLIB_CLI_COMMAND (add_lb_static_mapping_command, static) = {
   .short_help =
     "nat44 add load-balancing static mapping protocol tcp|udp "
     "external <addr>:<port> local <addr>:<port> probability <n> [twice-nat] "
-    "[vrf <table-id>] [del]",
+    "[vrf <table-id>] [out2in-only] [del]",
 };
 
 static clib_error_t *
