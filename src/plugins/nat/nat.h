@@ -543,7 +543,7 @@ int snat_del_address(snat_main_t *sm, ip4_address_t addr, u8 delete_sm,
 int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
                             u16 l_port, u16 e_port, u32 vrf_id, int addr_only,
                             u32 sw_if_index, snat_protocol_t proto, int is_add,
-                            u8 twice_nat);
+                            u8 twice_nat, u8 out2in_only);
 clib_error_t * snat_api_init(vlib_main_t * vm, snat_main_t * sm);
 int snat_set_workers (uword * bitmap);
 int snat_interface_add_del(u32 sw_if_index, u8 is_inside, int is_del);

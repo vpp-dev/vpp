@@ -708,7 +708,7 @@ static void
   rv = snat_add_static_mapping (local_addr, external_addr, local_port,
 				external_port, vrf_id, mp->addr_only,
 				external_sw_if_index, proto, mp->is_add,
-				mp->twice_nat);
+				mp->twice_nat, mp->out2in_only);
 
   REPLY_MACRO (VL_API_NAT44_ADD_DEL_STATIC_MAPPING_REPLY);
 }
@@ -729,7 +729,8 @@ static void *vl_api_nat44_add_del_static_mapping_t_print
 		clib_net_to_host_u16 (mp->local_port),
 		clib_net_to_host_u16 (mp->external_port));
 
-  s = format (s, "twice_nat %d ", mp->twice_nat);
+  s = format (s, "twice_nat %d out2in_only %d ",
+	      mp->twice_nat, mp->out2in_only);
 
   if (mp->vrf_id != ~0)
     s = format (s, "vrf %d", clib_net_to_host_u32 (mp->vrf_id));
@@ -762,6 +763,7 @@ send_nat44_static_mapping_details (snat_static_mapping_t * m,
   rmp->protocol = snat_proto_to_ip_proto (m->proto);
   rmp->context = context;
   rmp->twice_nat = m->twice_nat;
+  rmp->out2in_only = m->out2in_only;
 
   vl_msg_api_send_shmem (q, (u8 *) & rmp);
 }
@@ -859,7 +861,7 @@ static void
 
   rv =
     snat_add_static_mapping (addr, addr, port, port, vrf_id, mp->addr_only,
-			     sw_if_index, proto, mp->is_add, 0);
+			     sw_if_index, proto, mp->is_add, 0, 0);
 
   REPLY_MACRO (VL_API_NAT44_ADD_DEL_IDENTITY_MAPPING_REPLY);
 }
@@ -1258,7 +1260,7 @@ static void *vl_api_nat44_add_del_lb_static_mapping_t_print
   u8 *s;
 
   s = format (0, "SCRIPT: nat44_add_del_lb_static_mapping ");
-  s = format (s, "is_add %d twice_nat %d out2in_only ",
+  s = format (s, "is_add %d twice_nat %d out2in_only %d ",
 	      mp->is_add, mp->twice_nat, mp->out2in_only);
 
   FINISH;

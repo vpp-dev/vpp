@@ -642,13 +642,14 @@ snat_add_static_mapping_when_resolved (snat_main_t * sm,
  * @param sw_if_index External port instead of specific IP address.
  * @param is_add If 0 delete static mapping, otherwise add.
  * @param twice_nat If 1 translate external host address and port.
+ * @param out2in_only If 1 rule match only out2in direction
  *
  * @returns
  */
 int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
                             u16 l_port, u16 e_port, u32 vrf_id, int addr_only,
                             u32 sw_if_index, snat_protocol_t proto, int is_add,
-                            u8 twice_nat)
+                            u8 twice_nat, u8 out2in_only)
 {
   snat_main_t * sm = &snat_main;
   snat_static_mapping_t *m;
@@ -722,7 +723,7 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
 
       /* Find external address in allocated addresses and reserve port for
          address and port pair mapping when dynamic translations enabled */
-      if (!addr_only && !(sm->static_mapping_only))
+      if (!(addr_only || sm->static_mapping_only || out2in_only))
         {
           for (i = 0; i < vec_len (sm->addresses); i++)
             {
@@ -765,6 +766,7 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
       m->vrf_id = vrf_id;
       m->fib_index = fib_index;
       m->twice_nat = twice_nat;
+      m->out2in_only = out2in_only;
       if (!addr_only)
         {
           m->local_port = l_port;
@@ -789,8 +791,9 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
       m_key.fib_index = m->fib_index;
       kv.key = m_key.as_u64;
       kv.value = m - sm->static_mappings;
-      clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 1);
-      if (twice_nat)
+      if (!out2in_only)
+        clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 1);
+      if (twice_nat || out2in_only)
         {
           m_key.port = clib_host_to_net_u16 (l_port);
           kv.key = m_key.as_u64;
@@ -805,7 +808,7 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
       kv.key = m_key.as_u64;
       kv.value = m - sm->static_mappings;
       clib_bihash_add_del_8_8(&sm->static_mapping_by_external, &kv, 1);
-      if (twice_nat)
+      if (twice_nat || out2in_only)
         {
           m_key.port = clib_host_to_net_u16 (e_port);
           kv.key = m_key.as_u64;
@@ -821,7 +824,7 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
         return VNET_API_ERROR_NO_SUCH_ENTRY;
 
       /* Free external address port */
-      if (!addr_only && !(sm->static_mapping_only))
+      if (!(addr_only || sm->static_mapping_only || out2in_only))
         {
           for (i = 0; i < vec_len (sm->addresses); i++)
             {
@@ -860,8 +863,9 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
       m_key.protocol = m->proto;
       m_key.fib_index = m->fib_index;
       kv.key = m_key.as_u64;
-      clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 0);
-      if (twice_nat)
+      if (!out2in_only)
+        clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 0);
+      if (twice_nat || out2in_only)
         {
           m_key.port = clib_host_to_net_u16 (m->local_port);
           kv.key = m_key.as_u64;
@@ -875,7 +879,7 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
       m_key.fib_index = sm->outside_fib_index;
       kv.key = m_key.as_u64;
       clib_bihash_add_del_8_8(&sm->static_mapping_by_external, &kv, 0);
-      if (twice_nat)
+      if (twice_nat || out2in_only)
         {
           m_key.port = clib_host_to_net_u16 (m->external_port);
           kv.key = m_key.as_u64;
@@ -1272,7 +1276,8 @@ snat_del_address (snat_main_t *sm, ip4_address_t addr, u8 delete_sm,
             (void) snat_add_static_mapping (m->local_addr, m->external_addr,
                                             m->local_port, m->external_port,
                                             m->vrf_id, m->addr_only, ~0,
-                                            m->proto, 0, m->twice_nat);
+                                            m->proto, 0, m->twice_nat,
+                                            m->out2in_only);
       }));
     }
   else
@@ -2267,6 +2272,7 @@ add_static_mapping_command_fn (vlib_main_t * vm,
   snat_protocol_t proto = ~0;
   u8 proto_set = 0;
   u8 twice_nat = 0;
+  u8 out2in_only = 0;
 
   /* Get a line of input. */
   if (!unformat_user (input, unformat_line_input, line_input))
@@ -2299,6 +2305,8 @@ add_static_mapping_command_fn (vlib_main_t * vm,
         proto_set = 1;
       else if (unformat (line_input, "twice-nat"))
         twice_nat = 1;
+      else if (unformat (line_input, "out2in-only"))
+        out2in_only = 1;
       else if (unformat (line_input, "del"))
         is_add = 0;
       else
@@ -2323,7 +2331,7 @@ add_static_mapping_command_fn (vlib_main_t * vm,
 
   rv = snat_add_static_mapping(l_addr, e_addr, (u16) l_port, (u16) e_port,
                                vrf_id, addr_only, sw_if_index, proto, is_add,
-                               twice_nat);
+                               twice_nat, out2in_only);
 
   switch (rv)
     {
@@ -2371,7 +2379,7 @@ VLIB_CLI_COMMAND (add_static_mapping_command, static) = {
   .function = add_static_mapping_command_fn,
   .short_help =
     "nat44 add static mapping tcp|udp|icmp local <addr> [<port>] "
-    "external <addr> [<port>] [vrf <table-id>] [twice-nat] [del]",
+    "external <addr> [<port>] [vrf <table-id>] [twice-nat] [out2in-only] [del]",
 };
 
 static clib_error_t *
@@ -2420,7 +2428,7 @@ add_identity_mapping_command_fn (vlib_main_t * vm,
 
   rv = snat_add_static_mapping(addr, addr, (u16) port, (u16) port,
                                vrf_id, addr_only, sw_if_index, proto, is_add,
-                               0);
+                               0, 0);
 
   switch (rv)
     {
@@ -3137,22 +3145,24 @@ u8 * format_snat_static_mapping (u8 * s, va_list * args)
    {
       if (vec_len (m->locals))
         {
-          s = format (s, "%U vrf %d external %U:%d %s",
+          s = format (s, "%U vrf %d external %U:%d %s %s",
                       format_snat_protocol, m->proto,
                       m->vrf_id,
                       format_ip4_address, &m->external_addr, m->external_port,
-                      m->twice_nat ? "twice-nat" : "");
+                      m->twice_nat ? "twice-nat" : "",
+                      m->out2in_only ? "out2in-only" : "");
           vec_foreach (local, m->locals)
             s = format (s, "\n  local %U:%d probability %d\%",
                         format_ip4_address, &local->addr, local->port,
                         local->probability);
         }
       else
-        s = format (s, "%U local %U:%d external %U:%d vrf %d %s",
+        s = format (s, "%U local %U:%d external %U:%d vrf %d %s %s",
                     format_snat_protocol, m->proto,
                     format_ip4_address, &m->local_addr, m->local_port,
                     format_ip4_address, &m->external_addr, m->external_port,
-                    m->vrf_id, m->twice_nat ? "twice-nat" : "");
+                    m->vrf_id, m->twice_nat ? "twice-nat" : "",
+                    m->out2in_only ? "out2in-only" : "");
    }
   return s;
 }
@@ -3524,7 +3534,7 @@ match:
                                             ~0 /* sw_if_index */,
                                             rp->proto,
                                             rp->is_add,
-                                            0);
+                                            0, 0);
               if (rv)
                 clib_warning ("snat_add_static_mapping returned %d",
                               rv);
