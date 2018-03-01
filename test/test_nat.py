@@ -2983,6 +2983,126 @@ class TestNAT44(MethodHolder):
         try:
             ip = p[IP]
             tcp = p[TCP]
+            self.assertEqual(ip.src, self.nat_addr)
+            self.assertNotEqual(tcp.sport, 23456)
+            ext_port = tcp.sport
+            self.check_tcp_checksum(p)
+            self.check_ip_checksum(p)
+        except:
+            self.logger.error(ppp("Unexpected or invalid packet:", p))
+            raise
+
+        # from external network back to local network host
+        p = (Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac) /
+             IP(src=self.pg1.remote_ip4, dst=self.nat_addr) /
+             TCP(sport=34567, dport=ext_port))
+        self.pg1.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg0.get_capture(1)
+        p = capture[0]
+        server = None
+        try:
+            ip = p[IP]
+            tcp = p[TCP]
+            self.assertEqual(ip.dst, self.pg0.remote_ip4)
+            self.assertEqual(tcp.dport, 23456)
+            self.check_tcp_checksum(p)
+            self.check_ip_checksum(p)
+        except:
+            self.logger.error(ppp("Unexpected or invalid packet:", p))
+            raise
+
+    def test_output_feature_and_service2(self):
+        """ NAT44 interface output feature and service host direct access """
+        self.vapi.nat44_forwarding_enable_disable(1)
+        self.nat44_add_address(self.nat_addr)
+        self.vapi.nat44_interface_add_del_output_feature(self.pg1.sw_if_index,
+                                                         is_inside=0)
+
+        # session initiaded from service host - translate
+        pkts = self.create_stream_in(self.pg0, self.pg1)
+        self.pg0.add_stream(pkts)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg1.get_capture(len(pkts))
+        self.verify_capture_out(capture)
+
+        pkts = self.create_stream_out(self.pg1)
+        self.pg1.add_stream(pkts)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg0.get_capture(len(pkts))
+        self.verify_capture_in(capture, self.pg0)
+
+        tcp_port_out = self.tcp_port_out
+        udp_port_out = self.udp_port_out
+        icmp_id_out = self.icmp_id_out
+
+        # session initiaded from remote host - do not translate
+        pkts = self.create_stream_out(self.pg1,
+                                      self.pg0.remote_ip4,
+                                      use_inside_ports=True)
+        self.pg1.add_stream(pkts)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg0.get_capture(len(pkts))
+        self.verify_capture_in(capture, self.pg0)
+
+        pkts = self.create_stream_in(self.pg0, self.pg1)
+        self.pg0.add_stream(pkts)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg1.get_capture(len(pkts))
+        self.verify_capture_out(capture, nat_ip=self.pg0.remote_ip4,
+                                same_port=True)
+
+    def test_one_armed_nat44(self):
+        """ One armed NAT44 """
+        remote_host = self.pg9.remote_hosts[0]
+        local_host = self.pg9.remote_hosts[1]
+        external_port = 0
+
+        self.nat44_add_address(self.nat_addr)
+        self.vapi.nat44_interface_add_del_feature(self.pg9.sw_if_index)
+        self.vapi.nat44_interface_add_del_feature(self.pg9.sw_if_index,
+                                                  is_inside=0)
+
+        # in2out
+        p = (Ether(src=self.pg9.remote_mac, dst=self.pg9.local_mac) /
+             IP(src=local_host.ip4, dst=remote_host.ip4) /
+             TCP(sport=12345, dport=80))
+        self.pg9.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg9.get_capture(1)
+        p = capture[0]
+        try:
+            ip = p[IP]
+            tcp = p[TCP]
+            self.assertEqual(ip.src, self.nat_addr)
+            self.assertEqual(ip.dst, remote_host.ip4)
+            self.assertNotEqual(tcp.sport, 12345)
+            external_port = tcp.sport
+            self.assertEqual(tcp.dport, 80)
+            self.check_tcp_checksum(p)
+            self.check_ip_checksum(p)
+        except:
+            self.logger.error(ppp("Unexpected or invalid packet:", p))
+            raise
+
+        # out2in
+        p = (Ether(src=self.pg9.remote_mac, dst=self.pg9.local_mac) /
+             IP(src=remote_host.ip4, dst=self.nat_addr) /
+             TCP(sport=80, dport=external_port))
+        self.pg9.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg9.get_capture(1)
+        p = capture[0]
+        try:
+            ip = p[IP]
+            tcp = p[TCP]
             self.assertEqual(ip.src, remote_host.ip4)
             self.assertEqual(ip.dst, local_host.ip4)
             self.assertEqual(tcp.sport, 80)
