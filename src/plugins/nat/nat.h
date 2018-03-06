@@ -217,10 +217,12 @@ typedef struct {
   u16 external_port;
   u8 addr_only;
   u8 twice_nat;
+  u8 out2in_only;
   u32 vrf_id;
   u32 fib_index;
   snat_protocol_t proto;
   u32 worker_index;
+  u8 *tag;
   nat44_lb_addr_port_t *locals;
 } snat_static_mapping_t;
 
@@ -239,6 +241,7 @@ typedef struct {
   int addr_only;
   int twice_nat;
   int is_add;
+  u8 *tag;
 } snat_static_map_resolve_t;
 
 typedef struct {
@@ -425,6 +428,9 @@ void snat_add_del_addr_to_fib (ip4_address_t * addr,
                                int is_add);
 
 format_function_t format_snat_user;
+format_function_t format_snat_static_mapping;
+format_function_t format_snat_static_map_to_resolve;
+format_function_t format_det_map_ses;
 
 typedef struct {
   u32 cached_sw_if_index;
@@ -542,7 +548,7 @@ int snat_del_address(snat_main_t *sm, ip4_address_t addr, u8 delete_sm,
 int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
                             u16 l_port, u16 e_port, u32 vrf_id, int addr_only,
                             u32 sw_if_index, snat_protocol_t proto, int is_add,
-                            u8 twice_nat);
+                            u8 twice_nat, u8 out2in_only, u8 *tag);
 clib_error_t * snat_api_init(vlib_main_t * vm, snat_main_t * sm);
 int snat_set_workers (uword * bitmap);
 int snat_interface_add_del(u32 sw_if_index, u8 is_inside, int is_del);
@@ -555,7 +561,7 @@ u8 * format_snat_protocol(u8 * s, va_list * args);
 int nat44_add_del_lb_static_mapping (ip4_address_t e_addr, u16 e_port,
                                      snat_protocol_t proto, u32 vrf_id,
                                      nat44_lb_addr_port_t *locals, u8 is_add,
-                                     u8 twice_nat);
+                                     u8 twice_nat, u8 out2in_only, u8 *tag);
 int nat44_del_session (snat_main_t *sm, ip4_address_t *addr, u16 port,
                        snat_protocol_t proto, u32 vrf_id, int is_in);
 void nat_free_session_data (snat_main_t * sm, snat_session_t * s,
@@ -564,6 +570,9 @@ snat_user_t * nat_user_get_or_create (snat_main_t *sm, ip4_address_t *addr,
                                       u32 fib_index, u32 thread_index);
 snat_session_t * nat_session_alloc_or_recycle (snat_main_t *sm, snat_user_t *u,
                                                u32 thread_index);
+void nat_set_alloc_addr_and_port_mape (u16 psid, u16 psid_offset,
+                                       u16 psid_length);
+void nat_set_alloc_addr_and_port_default (void);
 
 static_always_inline u8
 icmp_is_error_message (icmp46_header_t * icmp)
