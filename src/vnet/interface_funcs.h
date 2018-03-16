@@ -292,6 +292,10 @@ clib_error_t *set_hw_interface_change_rx_mode (vnet_main_t * vnm,
 					       vnet_hw_interface_rx_mode
 					       mode);
 
+/* update the unnumbered state of an interface */
+void vnet_sw_interface_update_unnumbered (u32 sw_if_index,
+					  u32 ip_sw_if_index, u8 enable);
+
 /* Formats sw/hw interface. */
 format_function_t format_vnet_hw_interface;
 format_function_t format_vnet_hw_interface_rx_mode;
