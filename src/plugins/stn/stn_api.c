@@ -22,34 +22,27 @@
 #include <vppinfra/byte_order.h>
 
 /* define message IDs */
-#define vl_msg_id(n,h) n,
-typedef enum
-{
-#include <stn/stn.api.h>
-  /* We'll want to know how many messages IDs we need... */
-  VL_MSG_FIRST_AVAILABLE,
-} vl_msg_id_t;
-#undef vl_msg_id
+#include <stn/stn_msg_enum.h>
 
 /* define message structures */
 #define vl_typedefs
-#include <stn/stn.api.h>
+#include <stn/stn_all_api_h.h>
 #undef vl_typedefs
 
 /* define generated endian-swappers */
 #define vl_endianfun
-#include <stn/stn.api.h>
+#include <stn/stn_all_api_h.h>
 #undef vl_endianfun
 
 /* instantiate all the print functions we know about */
 #define vl_print(handle, ...) vlib_cli_output (handle, __VA_ARGS__)
 #define vl_printfun
-#include <stn/stn.api.h>
+#include <stn/stn_all_api_h.h>
 #undef vl_printfun
 
 /* Get the API version number */
 #define vl_api_version(n,v) static u32 api_version=(v);
-#include <nat/nat_all_api_h.h>
+#include <stn/stn_all_api_h.h>
 #undef vl_api_version
 
 #define REPLY_MSG_ID_BASE stn_main.msg_id_base
@@ -116,7 +109,7 @@ send_stn_rule (stn_rule_t *r, unix_shared_memory_queue_t *q, u32 context)
       vl_msg_api_alloc (sizeof (*rmp));
   memset (rmp, 0, sizeof (*rmp));
   rmp->_vl_msg_id =
-      clib_host_to_net_u32 (VL_API_STN_RULES_DUMP + stn_main.msg_id_base);
+    clib_host_to_net_u16 (VL_API_STN_RULE_DETAILS + stn_main.msg_id_base);
 
   if (ip46_address_is_ip4(&r->address))
     {
@@ -131,7 +124,7 @@ send_stn_rule (stn_rule_t *r, unix_shared_memory_queue_t *q, u32 context)
   rmp->context = context;
   rmp->sw_if_index = clib_host_to_net_u32(r->sw_if_index);
 
-  vl_msg_api_send_shmem (q, (u8 *) & rmp);
+  vl_msg_api_send_shmem (q, (u8 *) &rmp);
 }
 
 static void
@@ -146,9 +139,7 @@ vl_api_stn_rules_dump_t_handler (vl_api_stn_rules_dump_t *mp)
     return;
 
   /* *INDENT-OFF* */
-  pool_foreach (r, stn->rules,
-		({
-
+  pool_foreach (r, stn->rules,({
     send_stn_rule (r, q, mp->context);
   }));
   /* *INDENT-ON* */
