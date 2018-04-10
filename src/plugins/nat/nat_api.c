@@ -691,6 +691,7 @@ static void
   ip4_address_t local_addr, external_addr;
   u16 local_port = 0, external_port = 0;
   u32 vrf_id, external_sw_if_index;
+  twice_nat_type_t twice_nat = TWICE_NAT_DISABLED;
   int rv = 0;
   snat_protocol_t proto;
   u8 *tag = 0;
@@ -705,6 +706,10 @@ static void
   vrf_id = clib_net_to_host_u32 (mp->vrf_id);
   external_sw_if_index = clib_net_to_host_u32 (mp->external_sw_if_index);
   proto = ip_proto_to_snat_proto (mp->protocol);
+  if (mp->twice_nat)
+    twice_nat = TWICE_NAT;
+  else if (mp->self_twice_nat)
+    twice_nat = TWICE_NAT_SELF;
   mp->tag[sizeof (mp->tag) - 1] = 0;
   tag = format (0, "%s", mp->tag);
   vec_terminate_c_string (tag);
@@ -712,7 +717,7 @@ static void
   rv = snat_add_static_mapping (local_addr, external_addr, local_port,
 				external_port, vrf_id, mp->addr_only,
 				external_sw_if_index, proto, mp->is_add,
-				mp->twice_nat, mp->out2in_only, tag);
+				twice_nat, mp->out2in_only, tag);
 
   vec_free (tag);
 
@@ -768,7 +773,10 @@ send_nat44_static_mapping_details (snat_static_mapping_t * m,
   rmp->vrf_id = htonl (m->vrf_id);
   rmp->protocol = snat_proto_to_ip_proto (m->proto);
   rmp->context = context;
-  rmp->twice_nat = m->twice_nat;
+  if (m->twice_nat == TWICE_NAT)
+    rmp->twice_nat = 1;
+  else if (m->twice_nat == TWICE_NAT_SELF)
+    rmp->self_twice_nat = 1;
   rmp->out2in_only = m->out2in_only;
   if (m->tag)
     strncpy ((char *) rmp->tag, (char *) m->tag, vec_len (m->tag));
@@ -1252,6 +1260,7 @@ static void
 {
   snat_main_t *sm = &snat_main;
   vl_api_nat44_add_del_lb_static_mapping_reply_t *rmp;
+  twice_nat_type_t twice_nat = TWICE_NAT_DISABLED;
   int rv = 0;
   nat44_lb_addr_port_t *locals = 0;
   ip4_address_t e_addr;
@@ -1261,6 +1270,10 @@ static void
   locals = unformat_nat44_lb_addr_port (mp->locals, mp->local_num);
   clib_memcpy (&e_addr, mp->external_addr, 4);
   proto = ip_proto_to_snat_proto (mp->protocol);
+  if (mp->twice_nat)
+    twice_nat = TWICE_NAT;
+  else if (mp->self_twice_nat)
+    twice_nat = TWICE_NAT_SELF;
   mp->tag[sizeof (mp->tag) - 1] = 0;
   tag = format (0, "%s", mp->tag);
   vec_terminate_c_string (tag);
@@ -1269,7 +1282,7 @@ static void
     nat44_add_del_lb_static_mapping (e_addr,
 				     clib_net_to_host_u16 (mp->external_port),
 				     proto, clib_net_to_host_u32 (mp->vrf_id),
-				     locals, mp->is_add, mp->twice_nat,
+				     locals, mp->is_add, twice_nat,
 				     mp->out2in_only, tag);
 
   vec_free (locals);
@@ -1312,7 +1325,10 @@ send_nat44_lb_static_mapping_details (snat_static_mapping_t * m,
   rmp->protocol = snat_proto_to_ip_proto (m->proto);
   rmp->vrf_id = ntohl (m->vrf_id);
   rmp->context = context;
-  rmp->twice_nat = m->twice_nat;
+  if (m->twice_nat == TWICE_NAT)
+    rmp->twice_nat = 1;
+  else if (m->twice_nat == TWICE_NAT_SELF)
+    rmp->self_twice_nat = 1;
   rmp->out2in_only = m->out2in_only;
   if (m->tag)
     strncpy ((char *) rmp->tag, (char *) m->tag, vec_len (m->tag));
