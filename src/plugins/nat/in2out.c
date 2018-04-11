@@ -236,7 +236,7 @@ snat_not_translate (snat_main_t * sm, vlib_node_runtime_t *node,
                               &value0))
     {
       /* or is static mappings */
-      if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0))
+      if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0, 0))
         return 0;
     }
   else
@@ -334,7 +334,7 @@ static u32 slow_path (snat_main_t *sm, vlib_buffer_t *b0,
     }
 
   /* First try to match static mapping by local address and port */
-  if (snat_static_mapping_match (sm, *key0, &key1, 0, 0, 0))
+  if (snat_static_mapping_match (sm, *key0, &key1, 0, 0, 0, 0))
     {
       /* Try to create dynamic translation */
       if (snat_alloc_outside_address_and_port (sm->addresses, rx_fib_index0,
@@ -699,7 +699,7 @@ u32 icmp_match_in2out_fast(snat_main_t *sm, vlib_node_runtime_t *node,
     }
   key0.fib_index = rx_fib_index0;
 
-  if (snat_static_mapping_match(sm, key0, &sm0, 0, &is_addr_only, 0))
+  if (snat_static_mapping_match(sm, key0, &sm0, 0, &is_addr_only, 0, 0))
     {
       if (PREDICT_FALSE(snat_not_translate_fast(sm, node, sw_if_index0, ip0,
           IP_PROTOCOL_ICMP, rx_fib_index0)))
@@ -898,7 +898,7 @@ snat_hairpinning (snat_main_t *sm,
   kv0.key = key0.as_u64;
 
   /* Check if destination is static mappings */
-  if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0))
+  if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0, 0))
     {
       new_dst_addr0 = sm0.addr.as_u32;
       new_dst_port0 = sm0.port;
@@ -999,7 +999,7 @@ snat_icmp_hairpinning (snat_main_t *sm,
                                   &value0))
         {
           /* or static mappings */
-          if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0))
+          if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0, 0))
             {
               new_dst_addr0 = sm0.addr.as_u32;
               vnet_buffer(b0)->sw_if_index[VLIB_TX] = sm0.fib_index;
@@ -1328,6 +1328,7 @@ snat_in2out_lb (snat_main_t *sm,
   u32 proto = ip_proto_to_snat_proto (ip->protocol);
   snat_session_key_t e_key, l_key;
   snat_user_t *u;
+  u8 lb;
 
   old_addr = ip->src_address.as_u32;
 
@@ -1358,7 +1359,7 @@ snat_in2out_lb (snat_main_t *sm,
       l_key.port = udp->src_port;
       l_key.protocol = proto;
       l_key.fib_index = rx_fib_index;
-      if (snat_static_mapping_match(sm, l_key, &e_key, 0, 0, 0))
+      if (snat_static_mapping_match(sm, l_key, &e_key, 0, 0, 0, &lb))
         return 0;
 
       u = nat_user_get_or_create (sm, &ip->src_address, rx_fib_index,
@@ -1378,7 +1379,8 @@ snat_in2out_lb (snat_main_t *sm,
 
       s->ext_host_addr.as_u32 = ip->dst_address.as_u32;
       s->flags |= SNAT_SESSION_FLAG_STATIC_MAPPING;
-      s->flags |= SNAT_SESSION_FLAG_LOAD_BALANCING;
+      if (lb)
+        s->flags |= SNAT_SESSION_FLAG_LOAD_BALANCING;
       s->outside_address_index = ~0;
       s->in2out = l_key;
       s->out2in = e_key;
@@ -2414,7 +2416,7 @@ nat44_reass_hairpinning (snat_main_t *sm,
   udp0 = ip4_next_header (ip0);
 
   /* Check if destination is static mappings */
-  if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0))
+  if (!snat_static_mapping_match(sm, key0, &sm0, 1, 0, 0, 0))
     {
       new_dst_addr0 = sm0.addr.as_u32;
       new_dst_port0 = sm0.port;
@@ -4023,7 +4025,7 @@ snat_in2out_fast_static_map_fn (vlib_main_t * vm,
           key0.port = udp0->src_port;
           key0.fib_index = rx_fib_index0;
 
-          if (snat_static_mapping_match(sm, key0, &sm0, 0, 0, 0))
+          if (snat_static_mapping_match(sm, key0, &sm0, 0, 0, 0, 0))
             {
               b0->error = node->errors[SNAT_IN2OUT_ERROR_NO_TRANSLATION];
               next0= SNAT_IN2OUT_NEXT_DROP;
