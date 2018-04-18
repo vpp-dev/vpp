@@ -470,6 +470,12 @@ typedef struct {
 */
 #define is_lb_session(s) (s->flags & SNAT_SESSION_FLAG_LOAD_BALANCING)
 
+/** \brief Check if NAT session is forwarding bypass.
+    @param s NAT session
+    @return 1 if NAT session is load-balancing
+*/
+#define is_fwd_bypass_session(s) (s->flags & SNAT_SESSION_FLAG_FWD_BYPASS)
+
 /** \brief Check if NAT session is endpoint dependent.
     @param s NAT session
     @return 1 if NAT session is endpoint dependent
