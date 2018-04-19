@@ -352,6 +352,9 @@ define nat44_interface_output_feature_details {
     @param vfr_id - VRF ID
     @param twice_nat - if 1 translate external host address and port, only for
                        1:1 NAPT (addr_only must be 0)
+    @param self_twice_nat - if 1 translate external host address and port
+                            whenever external host address equals
+                            local address of internal host
     @param out2in_only - if 1 rule match only out2in direction
     @param tag - opaque string tag
 */
@@ -368,6 +371,7 @@ autoreply define nat44_add_del_static_mapping {
   u32 external_sw_if_index;
   u32 vrf_id;
   u8 twice_nat;
+  u8 self_twice_nat;
   u8 out2in_only;
   u8 tag[64];
 };
@@ -392,6 +396,9 @@ define nat44_static_mapping_dump {
     @param external_sw_if_index - external interface
     @param vfr_id - VRF ID
     @param twice_nat - if 1 translate external host address and port
+    @param self_twice_nat - if 1 translate external host address and port
+                            whenever external host address equals
+                            local address of internal host
     @param out2in_only - if 1 rule match only out2in direction
     @param tag - opaque string tag
 */
@@ -406,6 +413,7 @@ define nat44_static_mapping_details {
   u32 external_sw_if_index;
   u32 vrf_id;
   u8 twice_nat;
+  u8 self_twice_nat;
   u8 out2in_only;
   u8 tag[64];
 };
@@ -570,6 +578,23 @@ typeonly manual_endian define nat44_lb_addr_port {
   u8 probability;
 };
 
+/** \brief Add/delete NAT44 load-balancing static mapping rule
+    @param client_index - opaque cookie to identify the sender
+    @param context - sender context, to match reply w/ request
+    @param is_add - 1 if add, 0 if delete
+    @param external_addr - external IPv4 address of the service
+    @param external_port - external L4 port number of the service
+    @param protocol - IP protocol number of the service
+    @param vrf_id - internal network VRF ID
+    @param twice_nat - if 1 translate external host address and port
+    @param self_twice_nat - if 1 translate external host address and port
+                            whenever external host address equals
+                            local address of internal host
+    @param out2in_only - if 1 rule match only out2in direction
+    @param tag - opaque string tag
+    @param local_num - number of local network nodes
+    @param locals - local network nodes
+*/
 autoreply manual_endian define nat44_add_del_lb_static_mapping {
   u32 client_index;
   u32 context;
@@ -579,6 +604,7 @@ autoreply manual_endian define nat44_add_del_lb_static_mapping {
   u8 protocol;
   u32 vrf_id;
   u8 twice_nat;
+  u8 self_twice_nat;
   u8 out2in_only;
   u8 tag[64];
   u8 local_num;
@@ -590,6 +616,22 @@ define nat44_lb_static_mapping_dump {
   u32 context;
 };
 
+/** \brief NAT44 load-balancing static mapping rule details response
+    @param context - sender context, to match reply w/ request
+    @param is_add - 1 if add, 0 if delete
+    @param external_addr - external IPv4 address of the service
+    @param external_port - external L4 port number of the service
+    @param protocol - IP protocol number of the service
+    @param vrf_id - internal network VRF ID
+    @param twice_nat - if 1 translate external host address and port
+    @param self_twice_nat - if 1 translate external host address and port
+                            whenever external host address equals
+                            local address of internal host
+    @param out2in_only - if 1 rule match only out2in direction
+    @param tag - opaque string tag
+    @param local_num - number of local network nodes
+    @param locals - local network nodes
+*/
 manual_endian define nat44_lb_static_mapping_details {
   u32 context;
   u8 external_addr[4];
@@ -597,6 +639,7 @@ manual_endian define nat44_lb_static_mapping_details {
   u8 protocol;
   u32 vrf_id;
   u8 twice_nat;
+  u8 self_twice_nat;
   u8 out2in_only;
   u8 tag[64];
   u8 local_num;

@@ -1253,6 +1253,7 @@ create_ses:
 
       s->ext_host_addr.as_u32 = ip->dst_address.as_u32;
       s->flags |= SNAT_SESSION_FLAG_UNKNOWN_PROTO;
+      s->flags |= SNAT_SESSION_FLAG_ENDPOINT_DEPENDENT;
       s->outside_address_index = address_index;
       s->out2in.addr.as_u32 = new_addr;
       s->out2in.fib_index = sm->outside_fib_index;
@@ -1381,6 +1382,7 @@ snat_in2out_lb (snat_main_t *sm,
       s->flags |= SNAT_SESSION_FLAG_STATIC_MAPPING;
       if (lb)
         s->flags |= SNAT_SESSION_FLAG_LOAD_BALANCING;
+      s->flags |= SNAT_SESSION_FLAG_ENDPOINT_DEPENDENT;
       s->outside_address_index = ~0;
       s->in2out = l_key;
       s->out2in = e_key;
