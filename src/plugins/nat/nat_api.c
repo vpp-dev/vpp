@@ -828,7 +828,9 @@ vl_api_nat44_static_mapping_dump_t_handler (vl_api_nat44_static_mapping_dump_t
   /* *INDENT-OFF* */
   pool_foreach (m, sm->static_mappings,
   ({
-      if (!vec_len(m->locals) && (m->local_addr.as_u32 != m->external_addr.as_u32))
+      if (!vec_len (m->locals) &&
+          ((m->local_port != m->external_port)
+           || (m->local_addr.as_u32 != m->external_addr.as_u32)))
         send_nat44_static_mapping_details (m, q, mp->context);
   }));
   /* *INDENT-ON* */
@@ -977,7 +979,8 @@ static void
   /* *INDENT-OFF* */
   pool_foreach (m, sm->static_mappings,
   ({
-      if (!vec_len(m->locals) && (m->local_addr.as_u32 == m->external_addr.as_u32))
+      if (!vec_len (m->locals) && (m->local_port == m->external_port)
+          && (m->local_addr.as_u32 == m->external_addr.as_u32))
         send_nat44_identity_mapping_details (m, q, mp->context);
   }));
   /* *INDENT-ON* */
