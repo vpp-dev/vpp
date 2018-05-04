@@ -557,7 +557,7 @@ static void *vl_api_tap_create_v2_t_print
   memset (null_mac, 0, sizeof (null_mac));
 
   s = format (0, "SCRIPT: tap_create_v2 ");
-  s = format (s, "id %s ", mp->id);
+  s = format (s, "id %u ", ntohl (mp->id));
   if (memcmp (mp->mac_address, null_mac, 6))
     s = format (s, "mac-address %U ",
 		format_ethernet_address, mp->mac_address);
@@ -577,9 +577,9 @@ static void *vl_api_tap_create_v2_t_print
     s = format (s, "host-ip6-addr %U/%d ", format_ip6_address,
 		mp->host_ip6_addr, mp->host_ip6_prefix_len);
   if (mp->tx_ring_sz)
-    s = format (s, "tx-ring-size %d ", mp->tx_ring_sz);
+    s = format (s, "tx-ring-size %u ", ntohs (mp->tx_ring_sz));
   if (mp->rx_ring_sz)
-    s = format (s, "rx-ring-size %d ", mp->rx_ring_sz);
+    s = format (s, "rx-ring-size %u ", ntohs (mp->rx_ring_sz));
   FINISH;
 }
 
