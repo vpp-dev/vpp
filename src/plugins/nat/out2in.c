@@ -407,6 +407,11 @@ create_bypass_for_fwd(snat_main_t * sm, ip4_header_t * ip, u32 rx_fib_index,
         clib_warning ("in2out_ed key add failed");
     }
 
+  if (ip->protocol == IP_PROTOCOL_TCP)
+    {
+      tcp_header_t *tcp = ip4_next_header(ip);
+      nat44_set_tcp_session_state (sm, s, tcp, thread_index);
+    }
   /* Per-user LRU list maintenance */
   clib_dlist_remove (tsm->list_pool, s->per_user_index);
   clib_dlist_addtail (tsm->list_pool, s->per_user_list_head_index,
@@ -1058,6 +1063,7 @@ snat_out2in_lb (snat_main_t *sm,
           ip->src_address.as_u32 = s->ext_host_nat_addr.as_u32;
         }
       tcp->checksum = ip_csum_fold(sum);
+      nat44_set_tcp_session_state (sm, s, tcp, thread_index);
     }
   else
     {
@@ -1294,6 +1300,7 @@ snat_out2in_node_fn (vlib_main_t * vm,
                                      ip4_header_t /* cheat */,
                                      length /* changed member */);
               tcp0->checksum = ip_csum_fold(sum0);
+              nat44_set_tcp_session_state (sm, s0, tcp0, thread_index);
             }
           else
             {
@@ -1466,6 +1473,7 @@ snat_out2in_node_fn (vlib_main_t * vm,
                                      ip4_header_t /* cheat */,
                                      length /* changed member */);
               tcp1->checksum = ip_csum_fold(sum1);
+              nat44_set_tcp_session_state (sm, s1, tcp1, thread_index);
             }
           else
             {
@@ -1674,6 +1682,7 @@ snat_out2in_node_fn (vlib_main_t * vm,
                                      ip4_header_t /* cheat */,
                                      length /* changed member */);
               tcp0->checksum = ip_csum_fold(sum0);
+              nat44_set_tcp_session_state (sm, s0, tcp0, thread_index);
             }
           else
             {
@@ -1935,6 +1944,7 @@ nat44_out2in_reass_node_fn (vlib_main_t * vm,
                                          ip4_header_t /* cheat */,
                                          length /* changed member */);
                   tcp0->checksum = ip_csum_fold(sum0);
+                  nat44_set_tcp_session_state (sm, s0, tcp0, thread_index);
                 }
               else
                 {

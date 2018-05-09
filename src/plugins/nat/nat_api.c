@@ -1166,6 +1166,8 @@ send_nat44_user_session_details (snat_session_t * s,
       rmp->inside_port = s->in2out.port;
       rmp->protocol = ntohs (snat_proto_to_ip_proto (s->in2out.protocol));
     }
+  if (s->in2out.protocol == SNAT_PROTOCOL_TCP)
+    rmp->is_closed = s->state == SNAT_SESSION_TCP_CLOSED ? 1 : 0;
 
   vl_msg_api_send_shmem (q, (u8 *) & rmp);
 }
