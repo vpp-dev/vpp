@@ -332,6 +332,10 @@ nat_session_alloc_or_recycle (snat_main_t *sm, snat_user_t *u, u32 thread_index)
       /* Get the session */
       s = pool_elt_at_index (tsm->sessions, session_index);
       nat_free_session_data (sm, s, thread_index);
+      if (snat_is_session_static(s))
+        u->nstaticsessions--;
+      else
+        u->nsessions--;
       s->outside_address_index = ~0;
       s->flags = 0;
       s->total_bytes = 0;
@@ -866,7 +870,6 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
           if (clib_bihash_add_del_8_8(&tsm->out2in, &kv, 1))
             clib_warning ("out2in key add failed");
         }
-
     }
   else
     {
