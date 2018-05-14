@@ -494,6 +494,7 @@ nat_not_translate_output_feature_fwd (snat_main_t * sm, ip4_header_t * ip,
   udp_header_t *udp;
   snat_session_t *s = 0;
   snat_main_per_thread_data_t *tsm = &sm->per_thread_data[thread_index];
+  f64 now = vlib_time_now (sm->vlib_main);
 
   if (!sm->forwarding_enabled)
     return 0;
@@ -531,13 +532,16 @@ nat_not_translate_output_feature_fwd (snat_main_t * sm, ip4_header_t * ip,
           if (ip->protocol == IP_PROTOCOL_TCP)
             {
               tcp_header_t *tcp = ip4_next_header(ip);
-              if (nat44_set_tcp_session_state (sm, s, tcp, thread_index))
+              if (nat44_set_tcp_session_state_i2o (sm, s, tcp, thread_index))
                 return 1;
             }
           /* Per-user LRU list maintenance */
           clib_dlist_remove (tsm->list_pool, s->per_user_index);
           clib_dlist_addtail (tsm->list_pool, s->per_user_list_head_index,
                               s->per_user_index);
+          /* Accounting */
+          s->last_heard = now;
+          s->total_pkts++;
           return 1;
         }
       else
@@ -1370,7 +1374,7 @@ snat_in2out_lb (snat_main_t *sm,
         {
           if (ip->protocol == IP_PROTOCOL_TCP)
             {
-              if (nat44_set_tcp_session_state (sm, s, tcp, thread_index))
+              if (nat44_set_tcp_session_state_i2o (sm, s, tcp, thread_index))
                 return 0;
             }
           /* Per-user LRU list maintenance */
@@ -1468,7 +1472,7 @@ snat_in2out_lb (snat_main_t *sm,
           ip->dst_address.as_u32 = s->ext_host_addr.as_u32;
         }
       tcp->checksum = ip_csum_fold(sum);
-      if (nat44_set_tcp_session_state (sm, s, tcp, thread_index))
+      if (nat44_set_tcp_session_state_i2o (sm, s, tcp, thread_index))
         return s;
     }
   else
@@ -1725,8 +1729,6 @@ snat_in2out_node_fn_inline (vlib_main_t * vm,
                                      ip4_header_t /* cheat */,
                                      length /* changed member */);
               tcp0->checksum = ip_csum_fold(sum0);
-              if (nat44_set_tcp_session_state (sm, s0, tcp0, thread_index))
-                goto trace00;
             }
           else
             {
@@ -1919,8 +1921,6 @@ snat_in2out_node_fn_inline (vlib_main_t * vm,
                                      ip4_header_t /* cheat */,
                                      length /* changed member */);
               tcp1->checksum = ip_csum_fold(sum1);
-              if (nat44_set_tcp_session_state (sm, s1, tcp1, thread_index))
-                goto trace01;
             }
           else
             {
@@ -2150,8 +2150,6 @@ snat_in2out_node_fn_inline (vlib_main_t * vm,
                                      ip4_header_t /* cheat */,
                                      length /* changed member */);
               tcp0->checksum = ip_csum_fold(sum0);
-              if (nat44_set_tcp_session_state (sm, s0, tcp0, thread_index))
-                goto trace0;
             }
           else
             {
@@ -2668,10 +2666,6 @@ nat44_in2out_reass_node_fn (vlib_main_t * vm,
                                  src_address /* changed member */);
           ip0->checksum = ip_csum_fold (sum0);
 
-          /* Hairpinning */
-          nat44_reass_hairpinning (sm, b0, ip0, s0->out2in.port,
-                                   s0->ext_host_port, proto0);
-
           if (PREDICT_FALSE (ip4_is_first_fragment (ip0)))
             {
               if (PREDICT_TRUE(proto0 == SNAT_PROTOCOL_TCP))
@@ -2688,8 +2682,6 @@ nat44_in2out_reass_node_fn (vlib_main_t * vm,
                                          ip4_header_t /* cheat */,
                                          length /* changed member */);
                   tcp0->checksum = ip_csum_fold(sum0);
-                  if (nat44_set_tcp_session_state (sm, s0, tcp0, thread_index))
-                    goto trace0;
                 }
               else
                 {
@@ -2698,6 +2690,10 @@ nat44_in2out_reass_node_fn (vlib_main_t * vm,
                   udp0->checksum = 0;
                 }
             }
+
+          /* Hairpinning */
+          nat44_reass_hairpinning (sm, b0, ip0, s0->out2in.port,
+                                   s0->ext_host_port, proto0);
 
           /* Accounting */
           s0->last_heard = now;
