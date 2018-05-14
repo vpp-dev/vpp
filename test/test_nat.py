@@ -2203,6 +2203,31 @@ class TestNAT44(MethodHolder):
         # verify number of translated packet
         self.pg1.get_capture(pkts_num)
 
+        users = self.vapi.nat44_user_dump()
+        for user in users:
+            if user.ip_address == self.pg0.remote_ip4n:
+                self.assertEqual(user.nsessions,
+                                 nat44_config.max_translations_per_user)
+                self.assertEqual(user.nstaticsessions, 0)
+
+        tcp_port = 22
+        self.nat44_add_static_mapping(self.pg0.remote_ip4, self.nat_addr,
+                                      tcp_port, tcp_port,
+                                      proto=IP_PROTOS.tcp)
+        p = (Ether(dst=self.pg0.local_mac, src=self.pg0.remote_mac) /
+             IP(src=self.pg0.remote_ip4, dst=self.pg1.remote_ip4) /
+             TCP(sport=tcp_port))
+        self.pg0.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        self.pg1.get_capture(1)
+        users = self.vapi.nat44_user_dump()
+        for user in users:
+            if user.ip_address == self.pg0.remote_ip4n:
+                self.assertEqual(user.nsessions,
+                                 nat44_config.max_translations_per_user - 1)
+                self.assertEqual(user.nstaticsessions, 1)
+
     def test_interface_addr(self):
         """ Acquire NAT44 addresses from interface """
         self.vapi.nat44_add_interface_addr(self.pg7.sw_if_index)
@@ -3768,7 +3793,7 @@ class TestNAT44(MethodHolder):
             self.initiate_tcp_session(self.pg0, self.pg1)
             sessions = self.vapi.nat44_user_session_dump(self.pg0.remote_ip4n,
                                                          0)
-            self.assertEqual(len(sessions) - start_sessnum, 2)
+            self.assertEqual(len(sessions) - start_sessnum, 1)
         except:
             self.logger.error("TCP session termination failed")
             raise
@@ -3831,7 +3856,7 @@ class TestNAT44(MethodHolder):
             self.initiate_tcp_session(self.pg0, self.pg1)
             sessions = self.vapi.nat44_user_session_dump(self.pg0.remote_ip4n,
                                                          0)
-            self.assertEqual(len(sessions) - start_sessnum, 2)
+            self.assertEqual(len(sessions) - start_sessnum, 1)
         except:
             self.logger.error("TCP session termination failed")
             raise
@@ -3893,7 +3918,7 @@ class TestNAT44(MethodHolder):
             self.initiate_tcp_session(self.pg0, self.pg1)
             sessions = self.vapi.nat44_user_session_dump(self.pg0.remote_ip4n,
                                                          0)
-            self.assertEqual(len(sessions) - start_sessnum, 2)
+            self.assertEqual(len(sessions) - start_sessnum, 1)
         except:
             self.logger.error("TCP session termination failed")
             raise
