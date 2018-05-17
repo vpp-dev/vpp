@@ -59,15 +59,6 @@ void BV (clib_bihash_init)
 
   for (i = 0; i < nbuckets; i++)
     BV (clib_bihash_reset_cache) (h->buckets + i);
-
-  h->fmt_fn = NULL;
-}
-
-void BV (clib_bihash_set_kvp_format_fn) (BVT (clib_bihash) * h,
-					 format_function_t * fmt_fn)
-{
-  h->fmt_fn = fmt_fn;
->>>>>>> 97f5af0... bihash table size perf/scale improvements
 }
 
 void BV (clib_bihash_free) (BVT (clib_bihash) * h)
