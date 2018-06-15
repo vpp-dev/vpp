@@ -744,11 +744,15 @@ static void *vl_api_nat44_add_del_static_mapping_t_print
 	      mp->twice_nat, mp->out2in_only);
 
   if (mp->vrf_id != ~0)
-    s = format (s, "vrf %d", clib_net_to_host_u32 (mp->vrf_id));
+    s = format (s, "vrf %d ", clib_net_to_host_u32 (mp->vrf_id));
 
   if (mp->external_sw_if_index != ~0)
-    s = format (s, "external_sw_if_index %d",
+    s = format (s, "external_sw_if_index %d ",
 		clib_net_to_host_u32 (mp->external_sw_if_index));
+
+  if (!mp->is_add)
+    s = format (s, "del");
+
   FINISH;
 }
 
@@ -1431,8 +1435,8 @@ vl_api_nat44_del_session_t_print (vl_api_nat44_del_session_t * mp,
 {
   u8 *s;
 
-  s = format (0, "SCRIPT: nat44_add_del_static_mapping ");
-  s = format (s, "addr %U port %d protocol %d vrf_id %d is_in %d",
+  s = format (0, "SCRIPT: nat44_del_session ");
+  s = format (s, "addr %U port %d protocol %d vrf_id %d is_in %d ",
 	      format_ip4_address, mp->address,
 	      clib_net_to_host_u16 (mp->port),
 	      mp->protocol, clib_net_to_host_u32 (mp->vrf_id), mp->is_in);

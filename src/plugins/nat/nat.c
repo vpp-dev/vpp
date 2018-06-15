@@ -143,7 +143,7 @@ void
 nat_free_session_data (snat_main_t * sm, snat_session_t * s, u32 thread_index)
 {
   snat_session_key_t key;
-  clib_bihash_kv_8_8_t kv;
+  clib_bihash_kv_8_8_t kv, value;
   nat_ed_ses_key_t ed_key;
   clib_bihash_kv_16_8_t ed_kv;
   int i;
@@ -237,12 +237,23 @@ nat_free_session_data (snat_main_t * sm, snat_session_t * s, u32 thread_index)
 
   /* Session lookup tables */
   kv.key = s->in2out.as_u64;
+  if (!clib_bihash_search_8_8 (&tsm->in2out, &kv, &value))
+    {
+      if (value.value == ~0)
+        goto skip1;
+    }
   if (clib_bihash_add_del_8_8 (&tsm->in2out, &kv, 0))
     clib_warning ("in2out key del failed");
+skip1:
   kv.key = s->out2in.as_u64;
+  if (!clib_bihash_search_8_8 (&tsm->out2in, &kv, &value))
+    {
+      if (value.value == ~0)
+        goto skip2;
+    }
   if (clib_bihash_add_del_8_8 (&tsm->out2in, &kv, 0))
     clib_warning ("out2in key del failed");
-
+skip2:
   if (snat_is_session_static (s))
     return;
 
@@ -671,6 +682,30 @@ snat_add_static_mapping_when_resolved (snat_main_t * sm,
   rp->tag = vec_dup (tag);
 }
 
+static int
+ou2in_only_local_exists (ip4_address_t * l_addr, u16 l_port,
+                         ip4_address_t * e_addr, u16 e_port)
+{
+  snat_main_t *sm = &snat_main;
+  snat_static_mapping_t *m;
+
+  /* *INDENT-OFF* */
+  pool_foreach (m, sm->static_mappings,
+  ({
+    if (!m->out2in_only)
+      continue;
+
+    if (m->external_port == e_port && m->external_addr.as_u32 == e_addr->as_u32)
+      continue;
+
+    if (m->local_port == l_port && m->local_addr.as_u32 == l_addr->as_u32)
+      return 1;
+  }));
+  /* *INDENT-ON* */
+
+  return 0;
+}
+
 /**
  * @brief Add static mapping.
  *
@@ -965,11 +1000,14 @@ int snat_add_static_mapping(ip4_address_t l_addr, ip4_address_t e_addr,
         clib_bihash_add_del_8_8(&sm->static_mapping_by_local, &kv, 0);
       if (twice_nat || out2in_only)
         {
-          m_key.port = clib_host_to_net_u16 (m->local_port);
-          kv.key = m_key.as_u64;
-          kv.value = ~0ULL;
-          if (clib_bihash_add_del_8_8(&tsm->in2out, &kv, 0))
-            clib_warning ("in2out key del failed");
+          if (!ou2in_only_local_exists(&l_addr, l_port, &e_addr, e_port))
+            {
+              m_key.port = clib_host_to_net_u16 (m->local_port);
+              kv.key = m_key.as_u64;
+              kv.value = ~0ULL;
+              if (clib_bihash_add_del_8_8(&tsm->in2out, &kv, 0))
+                clib_warning ("in2out key del failed");
+            }
         }
 
       m_key.addr = m->external_addr;

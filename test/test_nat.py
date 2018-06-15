@@ -1465,6 +1465,111 @@ class TestNAT44(MethodHolder):
             self.logger.error(ppp("Unexpected or invalid packet:", p))
             raise
 
+    def test_vpp_1317(self):
+        external_port = 53
+        local_port = 53
+
+        self.vapi.nat44_forwarding_enable_disable(1)
+        self.nat44_add_static_mapping(self.pg0.remote_ip4, self.nat_addr,
+                                      local_port, external_port,
+                                      proto=IP_PROTOS.udp, out2in_only=1,
+                                      self_twice_nat=1)
+        self.nat44_add_static_mapping(self.pg0.remote_ip4, "1.2.3.4",
+                                      local_port, external_port,
+                                      proto=IP_PROTOS.udp, out2in_only=1,
+                                      self_twice_nat=1)
+        self.vapi.nat44_interface_add_del_feature(self.pg0.sw_if_index)
+        self.vapi.nat44_interface_add_del_feature(self.pg1.sw_if_index,
+                                                  is_inside=0)
+
+        # from client to service
+        p = (Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac) /
+             IP(src=self.pg1.remote_ip4, dst=self.nat_addr) /
+             UDP(sport=12345, dport=external_port))
+        self.pg1.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg0.get_capture(1)
+        p = capture[0]
+        server = None
+        try:
+            ip = p[IP]
+            tcp = p[UDP]
+            self.assertEqual(ip.dst, self.pg0.remote_ip4)
+            self.assertEqual(tcp.dport, local_port)
+            self.check_ip_checksum(p)
+        except:
+            self.logger.error(ppp("Unexpected or invalid packet:", p))
+            raise
+
+        # from service back to client
+        p = (Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac) /
+             IP(src=self.pg0.remote_ip4, dst=self.pg1.remote_ip4) /
+             UDP(sport=local_port, dport=12345))
+        self.pg0.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg1.get_capture(1)
+        p = capture[0]
+        try:
+            ip = p[IP]
+            tcp = p[UDP]
+            self.assertEqual(ip.src, self.nat_addr)
+            self.assertEqual(tcp.sport, external_port)
+            self.check_ip_checksum(p)
+        except:
+            self.logger.error(ppp("Unexpected or invalid packet:", p))
+            raise
+
+        self.nat44_add_static_mapping(self.pg0.remote_ip4, "1.2.3.4",
+                                      local_port, external_port,
+                                      proto=IP_PROTOS.udp, out2in_only=1,
+                                      self_twice_nat=1, is_add=0)
+
+        # from client to service
+        p = (Ether(src=self.pg1.remote_mac, dst=self.pg1.local_mac) /
+             IP(src=self.pg1.remote_ip4, dst=self.nat_addr) /
+             UDP(sport=12345, dport=external_port))
+        self.pg1.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg0.get_capture(1)
+        p = capture[0]
+        server = None
+        try:
+            ip = p[IP]
+            tcp = p[UDP]
+            self.assertEqual(ip.dst, self.pg0.remote_ip4)
+            self.assertEqual(tcp.dport, local_port)
+            self.check_ip_checksum(p)
+        except:
+            self.logger.error(ppp("Unexpected or invalid packet:", p))
+            raise
+
+        # from service back to client
+        p = (Ether(src=self.pg0.remote_mac, dst=self.pg0.local_mac) /
+             IP(src=self.pg0.remote_ip4, dst=self.pg1.remote_ip4) /
+             UDP(sport=local_port, dport=12345))
+        self.pg0.add_stream(p)
+        self.pg_enable_capture(self.pg_interfaces)
+        self.pg_start()
+        capture = self.pg1.get_capture(1)
+        p = capture[0]
+        try:
+            ip = p[IP]
+            tcp = p[UDP]
+            self.assertEqual(ip.src, self.nat_addr)
+            self.assertEqual(tcp.sport, external_port)
+            self.check_ip_checksum(p)
+        except:
+            self.logger.error(ppp("Unexpected or invalid packet:", p))
+            raise
+
+        self.nat44_add_static_mapping(self.pg0.remote_ip4, self.nat_addr,
+                                      local_port, external_port,
+                                      proto=IP_PROTOS.udp, out2in_only=1,
+                                      self_twice_nat=1, is_add=0)
+
     def test_static_vrf_aware(self):
         """ 1:1 NAT VRF awareness """
 
@@ -3962,6 +4067,7 @@ class TestNAT44(MethodHolder):
             self.logger.info(self.vapi.cli("show nat44 interface address"))
             self.logger.info(self.vapi.cli("show nat44 sessions detail"))
             self.logger.info(self.vapi.cli("show nat virtual-reassembly"))
+            self.logger.info(self.vapi.cli("show nat44 hash tables detail"))
             self.vapi.cli("nat addr-port-assignment-alg default")
             self.clear_nat44()
 
