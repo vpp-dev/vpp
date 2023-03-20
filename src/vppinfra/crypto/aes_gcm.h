@@ -55,18 +55,18 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
 {
   uword i;
 #if defined(__VAES__) && defined(__AVX512F__)
-  u8x64u *Hi4, *d = (u8x64u *) data;
+  u8x64u *Hi, *d = (u8x64u *) data;
   ghash4_data_t _gd = {}, *gd = &_gd;
   u8x64 r = {}, tag4 = {};
 
   for (; n_left >= 512; n_left -= 512, d += 8)
     {
-      Hi4 = (u8x64u *) (ctx->Hi + NUM_HI - 32);
+      Hi = (u8x64u *) (ctx->Hi + NUM_HI - 32);
       tag4 = u8x64_insert_u8x16 (tag4, ctx->T, 0);
 
-      ghash4_mul_first (gd, u8x64_reflect_u8x16 (d[0]) ^ tag4, Hi4[0]);
+      ghash4_mul_first (gd, u8x64_reflect_u8x16 (d[0]) ^ tag4, Hi[0]);
       for (i = 1; i < 8; i++)
-	ghash4_mul_next (gd, u8x64_reflect_u8x16 (d[i]), Hi4[i]);
+	ghash4_mul_next (gd, u8x64_reflect_u8x16 (d[i]), Hi[i]);
       ghash4_reduce (gd);
       ghash4_reduce2 (gd);
       ctx->T = ghash4_final (gd);
@@ -74,46 +74,46 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
 
   if (n_left > 0)
     {
-      Hi4 = (u8x64u *) (ctx->Hi + NUM_HI - ((n_left + 15) / 16));
+      Hi = (u8x64u *) (ctx->Hi + NUM_HI - ((n_left + 15) / 16));
       tag4 = u8x64_insert_u8x16 (tag4, ctx->T, 0);
 
       if (n_left < 64)
 	{
 	  clib_memcpy_fast (&r, d, n_left);
-	  ghash4_mul_first (gd, u8x64_reflect_u8x16 (r) ^ tag4, Hi4[0]);
+	  ghash4_mul_first (gd, u8x64_reflect_u8x16 (r) ^ tag4, Hi[0]);
 	  ghash4_reduce (gd);
 	}
       else
 	{
-	  ghash4_mul_first (gd, u8x64_reflect_u8x16 (d[0]) ^ tag4, Hi4[0]);
+	  ghash4_mul_first (gd, u8x64_reflect_u8x16 (d[0]) ^ tag4, Hi[0]);
 	  n_left -= 64;
 	  i = 1;
 
 	  if (n_left >= 256)
 	    {
-	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i])), Hi4[i]);
+	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i])), Hi[i]);
 	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i + 1])),
-			       Hi4[i + 1]);
+			       Hi[i + 1]);
 	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i + 2])),
-			       Hi4[i + 2]);
+			       Hi[i + 2]);
 	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i + 3])),
-			       Hi4[i + 3]);
+			       Hi[i + 3]);
 	      n_left -= 256;
 	      i += 4;
 	    }
 
 	  if (n_left >= 128)
 	    {
-	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i])), Hi4[i]);
+	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i])), Hi[i]);
 	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i + 1])),
-			       Hi4[i + 1]);
+			       Hi[i + 1]);
 	      n_left -= 128;
 	      i += 2;
 	    }
 
 	  if (n_left >= 64)
 	    {
-	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i])), Hi4[i]);
+	      ghash4_mul_next (gd, u8x64_reflect_u8x16 ((d[i])), Hi[i]);
 	      n_left -= 64;
 	      i += 1;
 	    }
@@ -121,7 +121,7 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
 	  if (n_left)
 	    {
 	      clib_memcpy_fast (&r, d + i, n_left);
-	      ghash4_mul_next (gd, u8x64_reflect_u8x16 (r), Hi4[i]);
+	      ghash4_mul_next (gd, u8x64_reflect_u8x16 (r), Hi[i]);
 	    }
 
 	  ghash4_reduce (gd);
