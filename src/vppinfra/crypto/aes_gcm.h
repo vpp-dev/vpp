@@ -13,6 +13,13 @@
 #include <vppinfra/crypto/ghash.h>
 
 #define NUM_HI 32
+#if defined(__VAES__) && defined(__AVX512F__)
+#define N 64
+typedef u8x64 aes_data_t;
+#else
+#define N 16
+typedef u8x16 aes_data_t;
+#endif
 
 typedef struct
 {
@@ -41,18 +48,68 @@ typedef struct
 
   /* counter */
   u32 counter;
-  union
-  {
-    u32x4 Y;
-    u32x16 Y4;
-  };
+  u32x4 Y;
+  u32x16 Y4;
 } aes_gcm_ctx_t;
 
+#if N == 64
+static const u32x16 ctr_inv_1234 = {
+  0, 0, 0, 1 << 24, 0, 0, 0, 2 << 24, 0, 0, 0, 3 << 24, 0, 0, 0, 4 << 24,
+};
+
+static const u32x16 ctr_inv_4444 = { 0, 0, 0, 4 << 24, 0, 0, 0, 4 << 24,
+				     0, 0, 0, 4 << 24, 0, 0, 0, 4 << 24 };
+
+static const u32x16 ctr_1234 = {
+  1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0,
+};
+static const u32x16 ctr_4444 = {
+  4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
+};
+#else
+#endif
 static const u32x4 ctr_inv_1 = { 0, 0, 0, 1 << 24 };
 
 static_always_inline void
-aes_gcm_enc_first_round (u8x16 *r, aes_gcm_ctx_t *ctx, int n_blocks)
+aes_gcm_enc_first_round (aes_gcm_ctx_t *ctx, aes_data_t *r, int n_blocks)
 {
+#if N == 64
+  u8x64 k = ctx->Ke4[0];
+  int i = 0;
+
+  /* As counter is stored in network byte order for performance reasons we
+     are incrementing least significant byte only except in case where we
+     overlow. As we are processing four 512-blocks in parallel except the
+     last round, overflow can happen only when n == 4 */
+
+  if (n_blocks == 4)
+    for (; i < 2; i++)
+      {
+	r[i] = k ^ (u8x64) ctx->Y4;
+	ctx->Y4 += ctr_inv_4444;
+      }
+
+  if (n_blocks == 4 && PREDICT_FALSE ((u8) ctx->counter == 242))
+    {
+      u32x16 Yr = (u32x16) u8x64_reflect_u8x16 ((u8x64) ctx->Y4);
+
+      for (; i < n_blocks; i++)
+	{
+	  r[i] = k ^ (u8x64) ctx->Y4;
+	  Yr += ctr_4444;
+	  ctx->Y4 = (u32x16) u8x64_reflect_u8x16 ((u8x64) Yr);
+	}
+    }
+  else
+    {
+      for (; i < n_blocks; i++)
+	{
+	  r[i] = k ^ (u8x64) ctx->Y4;
+	  ctx->Y4 += ctr_inv_4444;
+	}
+    }
+  ctx->counter += n_blocks * 4;
+#else
   u8x16 k = ctx->Ke[0];
   int i = 0;
 
@@ -78,6 +135,7 @@ aes_gcm_enc_first_round (u8x16 *r, aes_gcm_ctx_t *ctx, int n_blocks)
 	  ctx->Y[3] = clib_host_to_net_u32 (ctx->counter);
 	}
     }
+#endif
 }
 
 static_always_inline void
@@ -328,6 +386,8 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
 #endif
 }
 
+
+#if N == 16
 static_always_inline __clib_unused void
 aes_gcm_calc (aes_gcm_ctx_t *ctx, u8x16 *d, u8x16u *inv, u8x16u *outv, int n,
 	      int last_block_bytes, int with_ghash)
@@ -341,7 +401,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, u8x16 *d, u8x16u *inv, u8x16u *outv, int n,
   clib_prefetch_load (inv + 4);
 
   /* AES rounds 0 and 1 */
-  aes_gcm_enc_first_round (r, ctx, n);
+  aes_gcm_enc_first_round (ctx, r, n);
   aes_gcm_enc_round (r, rk[1], n);
 
   /* load data - decrypt round */
@@ -429,7 +489,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x16 *d, u8x16u *inv, u8x16u *outv,
   u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - 8;
 
   /* AES rounds 0 and 1 */
-  aes_gcm_enc_first_round (r, ctx, 4);
+  aes_gcm_enc_first_round (ctx, r, 4);
   aes_gcm_enc_round (r, rk[1], 4);
 
   /* load 4 blocks of data - decrypt round */
@@ -500,7 +560,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x16 *d, u8x16u *inv, u8x16u *outv,
   ghash_mul_next (gd, u8x16_reflect (d[0]), Hi[4]);
 
   /* AES rounds 0, 1 and 2 */
-  aes_gcm_enc_first_round (r, ctx, 4);
+  aes_gcm_enc_first_round (ctx, r, 4);
   aes_gcm_enc_round (r, rk[1], 4);
   aes_gcm_enc_round (r, rk[2], 4);
 
@@ -576,61 +636,9 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, u8x16 *d, int n_blocks, int n_bytes)
   ghash_reduce2 (gd);
   ctx->T = ghash_final (gd);
 }
+#endif
 
 #if defined(__VAES__) && defined(__AVX512F__)
-static const u32x16 ctr_inv_1234 = {
-  0, 0, 0, 1 << 24, 0, 0, 0, 2 << 24, 0, 0, 0, 3 << 24, 0, 0, 0, 4 << 24,
-};
-
-static const u32x16 ctr_inv_4444 = { 0, 0, 0, 4 << 24, 0, 0, 0, 4 << 24,
-				     0, 0, 0, 4 << 24, 0, 0, 0, 4 << 24 };
-
-static const u32x16 ctr_1234 = {
-  1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0,
-};
-static const u32x16 ctr_4444 = {
-  4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0, 4, 0, 0, 0,
-};
-
-static_always_inline void
-aes4_gcm_enc_first_round (u8x64 *r, aes_gcm_ctx_t *ctx, int n)
-{
-  u8x64 k = ctx->Ke4[0];
-  int i = 0;
-
-  /* As counter is stored in network byte order for performance reasons we
-     are incrementing least significant byte only except in case where we
-     overlow. As we are processing four 512-blocks in parallel except the
-     last round, overflow can happen only when n == 4 */
-
-  if (n == 4)
-    for (; i < 2; i++)
-      {
-	r[i] = k ^ (u8x64) ctx->Y4;
-	ctx->Y4 += ctr_inv_4444;
-      }
-
-  if (n == 4 && PREDICT_FALSE ((u8) ctx->counter == 242))
-    {
-      u32x16 Yr = (u32x16) u8x64_reflect_u8x16 ((u8x64) ctx->Y4);
-
-      for (; i < n; i++)
-	{
-	  r[i] = k ^ (u8x64) ctx->Y4;
-	  Yr += ctr_4444;
-	  ctx->Y4 = (u32x16) u8x64_reflect_u8x16 ((u8x64) Yr);
-	}
-    }
-  else
-    {
-      for (; i < n; i++)
-	{
-	  r[i] = k ^ (u8x64) ctx->Y4;
-	  ctx->Y4 += ctr_inv_4444;
-	}
-    }
-  ctx->counter += n * 4;
-}
 
 static_always_inline void
 aes4_gcm_enc_round (u8x64 *r, u8x64 k, int n_blocks)
@@ -684,7 +692,7 @@ aes4_gcm_calc (aes_gcm_ctx_t *ctx, u8x64 *d, u8x16u *in, u8x16u *out, int n,
     }
 
   /* AES rounds 0 and 1 */
-  aes4_gcm_enc_first_round (r, ctx, n);
+  aes_gcm_enc_first_round (ctx, r, n);
   aes4_gcm_enc_round (r, rk[1], n);
 
   /* load 4 blocks of data - decrypt round */
@@ -774,7 +782,7 @@ aes4_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x64 *d, u8x16u *in, u8x16u *out,
   u8x64u *inv = (u8x64u *) in, *outv = (u8x64u *) out;
 
   /* AES rounds 0 and 1 */
-  aes4_gcm_enc_first_round (r, ctx, 4);
+  aes_gcm_enc_first_round (ctx, r, 4);
   aes4_gcm_enc_round (r, rk[1], 4);
 
   /* load 4 blocks of data - decrypt round */
@@ -834,7 +842,7 @@ aes4_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x64 *d, u8x16u *in, u8x16u *out,
   ghash4_mul_next (gd, u8x64_reflect_u8x16 (d[0]), Hi4[4]);
 
   /* AES rounds 0 and 1 */
-  aes4_gcm_enc_first_round (r, ctx, 4);
+  aes_gcm_enc_first_round (ctx, r, 4);
   aes4_gcm_enc_round (r, rk[1], 4);
 
   /* GHASH multiply block 5 */
