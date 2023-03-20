@@ -394,8 +394,8 @@ aes_gcm_enc_last_round (aes_gcm_ctx_t *ctx, aes_data_t *r, aes_data_t *d,
 }
 
 static_always_inline void
-aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, u8x16u *in, u8x16u *out,
-	      uword n, uword last_block_bytes, int with_ghash)
+aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out, uword n,
+	      uword last_block_bytes, int with_ghash)
 {
 #if N == 64
   ghash4_data_t _gd, *gd = &_gd;
@@ -594,7 +594,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, u8x16u *in, u8x16u *out,
 }
 
 static_always_inline void
-aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, u8 *in, u8 *out,
+aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
 		     int with_ghash)
 {
   aes_data_t r[4];
@@ -897,7 +897,7 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 }
 
 static_always_inline void
-aes_gcm_enc (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
+aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *in, u8 *out, u32 n_left)
 {
   aes_data_t d[4];
   if (n_left == 0)
@@ -909,47 +909,46 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
       if (n_left > 3 * N)
 	{
 	  n_left -= 3 * N;
-	  aes_gcm_calc (ctx, d, inv, outv, 4, n_left, /* with_ghash */ 0);
+	  aes_gcm_calc (ctx, d, in, out, 4, n_left, /* with_ghash */ 0);
 	  aes_gcm_ghash_last (ctx, d, 4, n_left);
 	}
       else if (n_left > 2 * N)
 	{
 	  n_left -= 2 * N;
-	  aes_gcm_calc (ctx, d, inv, outv, 3, n_left, /* with_ghash */ 0);
+	  aes_gcm_calc (ctx, d, in, out, 3, n_left, /* with_ghash */ 0);
 	  aes_gcm_ghash_last (ctx, d, 3, n_left);
 	}
       else if (n_left > N)
 	{
 	  n_left -= N;
-	  aes_gcm_calc (ctx, d, inv, outv, 2, n_left, /* with_ghash */ 0);
+	  aes_gcm_calc (ctx, d, in, out, 2, n_left, /* with_ghash */ 0);
 	  aes_gcm_ghash_last (ctx, d, 2, n_left);
 	}
       else
 	{
-	  aes_gcm_calc (ctx, d, inv, outv, 1, n_left, /* with_ghash */ 0);
+	  aes_gcm_calc (ctx, d, in, out, 1, n_left, /* with_ghash */ 0);
 	  aes_gcm_ghash_last (ctx, d, 1, n_left);
 	}
       return;
     }
-  aes_gcm_calc (ctx, d, inv, outv, 4, 0, /* with_ghash */ 0);
+  aes_gcm_calc (ctx, d, in, out, 4, 0, /* with_ghash */ 0);
 
   /* next */
   n_left -= 4 * N;
-  outv += N / 4;
-  inv += N / 4;
+  out += 4 * N;
+  in += 4 * N;
 
-  for (; n_left >= 8 * N; n_left -= 8 * N, inv += N / 2, outv += N / 2)
-    aes_gcm_calc_double (ctx, d, (u8 *) inv, (u8 *) outv,
-			 /* with_ghash */ 1);
+  for (; n_left >= 8 * N; n_left -= 8 * N, in +=  8 *N, out += 8 * N)
+    aes_gcm_calc_double (ctx, d, in, out, /* with_ghash */ 1);
 
   if (n_left >= 4 * N)
     {
-      aes_gcm_calc (ctx, d, inv, outv, 4, 0, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, in, out, 4, 0, /* with_ghash */ 1);
 
       /* next */
       n_left -= 4 * N;
-      outv += N / 4;
-      inv += N / 4;
+      out += 4 * N;
+      in += 4 * N;
     }
 
   if (n_left == 0)
@@ -967,45 +966,43 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
   if (n_left > 3 * N)
     {
       n_left -= 3 * N;
-      aes_gcm_calc (ctx, d, inv, outv, 4, n_left, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, in, out, 4, n_left, /* with_ghash */ 1);
       aes_gcm_ghash_last (ctx, d, 4, n_left);
     }
   else if (n_left > 2 * N)
     {
       n_left -= 2 * N;
-      aes_gcm_calc (ctx, d, inv, outv, 3, n_left, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, in, out, 3, n_left, /* with_ghash */ 1);
       aes_gcm_ghash_last (ctx, d, 3, n_left);
     }
   else if (n_left > N)
     {
       n_left -= N;
-      aes_gcm_calc (ctx, d, inv, outv, 2, n_left, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, in, out, 2, n_left, /* with_ghash */ 1);
       aes_gcm_ghash_last (ctx, d, 2, n_left);
     }
   else
     {
-      aes_gcm_calc (ctx, d, inv, outv, 1, n_left, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, in, out, 1, n_left, /* with_ghash */ 1);
       aes_gcm_ghash_last (ctx, d, 1, n_left);
     }
 }
 
 static_always_inline void
-aes_gcm_dec (aes_gcm_ctx_t *ctx, u8 *in, u8 *out, uword n_left)
+aes_gcm_dec (aes_gcm_ctx_t *ctx, const u8 *in, u8 *out, uword n_left)
 {
   aes_data_t d[4] = {};
   for (; n_left >= 8 * N; n_left -= 8 * N, out += 8 * N, in += 8 * N)
     aes_gcm_calc_double (ctx, d, in, out, /* with_ghash */ 1);
 
-  u8x16u *inv = (u8x16u *) in;
-  u8x16u *outv = (u8x16u *) out;
   if (n_left >= 4 * N)
     {
-      aes_gcm_calc (ctx, d, inv, outv, 4, 0, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, in, out, 4, 0, /* with_ghash */ 1);
 
       /* next */
       n_left -= 4 * N;
-      outv += N / 4;
-      inv +=  N / 4;
+      out += N * 4;
+      in += N * 4;
     }
 
   if (n_left == 0)
@@ -1014,13 +1011,13 @@ aes_gcm_dec (aes_gcm_ctx_t *ctx, u8 *in, u8 *out, uword n_left)
   ctx->last = 1;
 
   if (n_left > 3 * N)
-    aes_gcm_calc (ctx, d, inv, outv, 4, n_left - 3 * N, /* with_ghash */ 1);
+    aes_gcm_calc (ctx, d, in, out, 4, n_left - 3 * N, /* with_ghash */ 1);
   else if (n_left > 2 * N)
-    aes_gcm_calc (ctx, d, inv, outv, 3, n_left - 2 * N, /* with_ghash */ 1);
+    aes_gcm_calc (ctx, d, in, out, 3, n_left - 2 * N, /* with_ghash */ 1);
   else if (n_left > N)
-    aes_gcm_calc (ctx, d, inv, outv, 2, n_left - N, /* with_ghash */ 1);
+    aes_gcm_calc (ctx, d, in, out, 2, n_left - N, /* with_ghash */ 1);
   else
-    aes_gcm_calc (ctx, d, inv, outv, 1, n_left, /* with_ghash */ 1);
+    aes_gcm_calc (ctx, d, in, out, 1, n_left, /* with_ghash */ 1);
 }
 
 static_always_inline int
@@ -1068,9 +1065,9 @@ aes_gcm (const u8 *in, u8 *out, const u8 *aad, u8 *ivp, u8x16u *tag,
 
   /* ghash and encrypt/edcrypt  */
   if (is_encrypt)
-    aes_gcm_enc (ctx, (u8x16u *) in, (u8x16u *) out, data_bytes);
+    aes_gcm_enc (ctx, in, out, data_bytes);
   else
-    aes_gcm_dec (ctx, (u8 *) in, out, data_bytes);
+    aes_gcm_dec (ctx, in, out, data_bytes);
 
   /* Finalize ghash - data bytes and aad bytes converted to bits */
   r = (u8x16) ((u64x2){ data_bytes, aad_bytes } << 3);
