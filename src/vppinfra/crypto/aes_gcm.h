@@ -394,8 +394,8 @@ aes_gcm_enc_last_round (aes_gcm_ctx_t *ctx, aes_data_t *r, aes_data_t *d,
 }
 
 static_always_inline void
-aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, u8x16u *in, u8x16u *out, int n,
-	      int last_block_bytes, int with_ghash)
+aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, u8x16u *in, u8x16u *out,
+	      int n, int last_block_bytes, int with_ghash)
 {
 #if N == 64
   ghash4_data_t _gd, *gd = &_gd;
@@ -593,13 +593,15 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, u8x16u *in, u8x16u *out, int n,
 }
 
 static_always_inline __clib_unused void
-aes_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x16 *d, u8x16u *inv, u8x16u *outv,
+aes_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x16 *d, u8 *in, u8 *out,
 		     int with_ghash)
 {
   u8x16 r[4];
   ghash_data_t _gd, *gd = &_gd;
   const u8x16 *rk = (u8x16 *) ctx->Ke;
   u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - 8;
+  u8x16u *inv = (u8x16u *) in;
+  u8x16u *outv = (u8x16u *) out;
 
   /* AES rounds 0 and 1 */
   aes_gcm_enc_first_round (ctx, r, 4);
@@ -732,17 +734,18 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x16 *d, u8x16u *inv, u8x16u *outv,
 
 static_always_inline void
 aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
-		     int n_bytes)
+		    int n_bytes)
 {
 #if N == 64
   ghash4_data_t _gd, *gd = &_gd;
   u8x64u *Hi4;
   int n_128bit_blocks;
   u64 byte_mask = _bextr_u64 (-1LL, 0, n_bytes);
-  n_128bit_blocks = (n_blocks- 1) * 4 + ((n_bytes + 15) >> 4);
+  n_128bit_blocks = (n_blocks - 1) * 4 + ((n_bytes + 15) >> 4);
   Hi4 = (u8x64u *) (ctx->Hi + NUM_HI - n_128bit_blocks);
 
-  d[n_blocks - 1] = u8x64_mask_blend (u8x64_zero (), d[n_blocks - 1], byte_mask);
+  d[n_blocks - 1] =
+    u8x64_mask_blend (u8x64_zero (), d[n_blocks - 1], byte_mask);
   ghash4_mul_first (gd,
 		    u8x64_reflect_u8x16 (d[0]) ^
 		      u8x64_insert_u8x16 (u8x64_zero (), ctx->T, 0),
@@ -778,9 +781,8 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 
 #if defined(__VAES__) && defined(__AVX512F__)
 
-
 static_always_inline void
-aes4_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x64 *d, u8x16u *in, u8x16u *out,
+aes_gcm_calc_double (aes_gcm_ctx_t *ctx, u8x64 *d, u8 *in, u8 *out,
 		      int with_ghash)
 {
   u8x64 r[4];
@@ -948,7 +950,7 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
 
   while (n_left >= 512)
     {
-      aes4_gcm_calc_double (ctx, d4, inv, outv, /* with_ghash */ 1);
+      aes_gcm_calc_double (ctx, d4, (u8 *) inv, (u8 *) outv, /* with_ghash */ 1);
 
       /* next */
       n_left -= 512;
@@ -1037,7 +1039,7 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
 
   while (n_left >= 128)
     {
-      aes_gcm_calc_double (ctx, d, inv, outv, /* with_ghash */ 1);
+      aes_gcm_calc_double (ctx, d, (u8 *) inv, (u8 *) outv, /* with_ghash */ 1);
 
       /* next */
       n_left -= 128;
@@ -1093,17 +1095,18 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
 }
 
 static_always_inline void
-aes_gcm_dec (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
+aes_gcm_dec (aes_gcm_ctx_t *ctx, u8 *in, u8 *out, u32 n_left)
 {
-#if defined(__VAES__) && defined(__AVX512F__)
-  u8x64 d4[4] = {};
+  aes_data_t d[4] = {};
+  for (; n_left >= 8 *N; n_left -= 8 * N, out += 8 * N, in += 8 * N)
+    aes_gcm_calc_double (ctx, d, in, out, /* with_ghash */ 1);
 
-  for (; n_left >= 512; n_left -= 512, outv += 32, inv += 32)
-    aes4_gcm_calc_double (ctx, d4, inv, outv, /* with_ghash */ 1);
-
+  u8x16u *inv = (u8x16u *) in;
+  u8x16u *outv = (u8x16u *) out;
+#if N == 64
   if (n_left >= 256)
     {
-      aes_gcm_calc (ctx, d4, inv, outv, 4, 0, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, inv, outv, 4, 0, /* with_ghash */ 1);
 
       /* next */
       n_left -= 256;
@@ -1111,32 +1114,7 @@ aes_gcm_dec (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
       inv += 16;
     }
 
-  if (n_left == 0)
-    return;
-
-  ctx->last = 1;
-
-  if (n_left > 192)
-    aes_gcm_calc (ctx, d4, inv, outv, 4, n_left - 192, /* with_ghash */ 1);
-  else if (n_left > 128)
-    aes_gcm_calc (ctx, d4, inv, outv, 3, n_left - 128, /* with_ghash */ 1);
-  else if (n_left > 64)
-    aes_gcm_calc (ctx, d4, inv, outv, 2, n_left - 64, /* with_ghash */ 1);
-  else
-    aes_gcm_calc (ctx, d4, inv, outv, 1, n_left, /* with_ghash */ 1);
-  return;
 #else
-  u8x16 d[4] = {};
-  while (n_left >= 128)
-    {
-      aes_gcm_calc_double (ctx, d, inv, outv, /* with_ghash */ 1);
-
-      /* next */
-      n_left -= 128;
-      outv += 8;
-      inv += 8;
-    }
-
   if (n_left >= 64)
     {
       aes_gcm_calc (ctx, d, inv, outv, 4, 0, /* with_ghash */ 1);
@@ -1146,31 +1124,30 @@ aes_gcm_dec (aes_gcm_ctx_t *ctx, u8x16u *inv, u8x16u *outv, u32 n_left)
       outv += 4;
       inv += 4;
     }
+#endif
 
   if (n_left == 0)
     return;
 
   ctx->last = 1;
 
-  if (n_left > 48)
-    aes_gcm_calc (ctx, d, inv, outv, 4, n_left - 48, /* with_ghash */ 1);
-  else if (n_left > 32)
-    aes_gcm_calc (ctx, d, inv, outv, 3, n_left - 32, /* with_ghash */ 1);
-  else if (n_left > 16)
-    aes_gcm_calc (ctx, d, inv, outv, 2, n_left - 16, /* with_ghash */ 1);
+  if (n_left > 3 * N)
+    aes_gcm_calc (ctx, d, inv, outv, 4, n_left - 3 * N, /* with_ghash */ 1);
+  else if (n_left > 2 * N)
+    aes_gcm_calc (ctx, d, inv, outv, 3, n_left - 2 * N, /* with_ghash */ 1);
+  else if (n_left > N)
+    aes_gcm_calc (ctx, d, inv, outv, 2, n_left - N, /* with_ghash */ 1);
   else
     aes_gcm_calc (ctx, d, inv, outv, 1, n_left, /* with_ghash */ 1);
-#endif
 }
 
 static_always_inline int
-aes_gcm (const u8 *src, u8x16u *out, const u8 *aad, u8 *ivp, u8x16u *tag,
+aes_gcm (const u8 *in, u8 *out, const u8 *aad, u8 *ivp, u8x16u *tag,
 	 u32 data_bytes, u32 aad_bytes, u8 tag_len,
 	 const aes_gcm_key_data_t *kd, int aes_rounds, int is_encrypt)
 {
   int i;
   u8x16 r, EY0;
-  u8x16u *in = (u8x16u *) src;
   u8 *addt = (u8 *) aad;
   vec128_t Y0 = {};
   ghash_data_t __clib_unused _gd, *gd = &_gd;
@@ -1209,9 +1186,9 @@ aes_gcm (const u8 *src, u8x16u *out, const u8 *aad, u8 *ivp, u8x16u *tag,
 
   /* ghash and encrypt/edcrypt  */
   if (is_encrypt)
-    aes_gcm_enc (ctx, in, out, data_bytes);
+    aes_gcm_enc (ctx, (u8x16u *) in, (u8x16u *) out, data_bytes);
   else
-    aes_gcm_dec (ctx, in, out, data_bytes);
+    aes_gcm_dec (ctx, (u8 *) in, out, data_bytes);
 
   /* Finalize ghash - data bytes and aad bytes converted to bits */
   r = (u8x16) ((u64x2){ data_bytes, aad_bytes } << 3);
@@ -1266,7 +1243,7 @@ clib_aes128_gcm_enc (const aes_gcm_key_data_t *kd, const u8 *plaintext,
 		     u32 data_bytes, const u8 *aad, u32 aad_bytes,
 		     const u8 *iv, u32 tag_bytes, u8 *cyphertext, u8 *tag)
 {
-  aes_gcm (plaintext, (u8x16u *) cyphertext, aad, (u8 *) iv, (u8x16u *) tag,
+  aes_gcm (plaintext, cyphertext, aad, (u8 *) iv, (u8x16u *) tag,
 	   data_bytes, aad_bytes, tag_bytes, kd, AES_KEY_ROUNDS (AES_KEY_128),
 	   /* is_encrypt */ 1);
 }
@@ -1276,7 +1253,7 @@ clib_aes256_gcm_enc (const aes_gcm_key_data_t *kd, const u8 *plaintext,
 		     u32 data_bytes, const u8 *aad, u32 aad_bytes,
 		     const u8 *iv, u32 tag_bytes, u8 *cyphertext, u8 *tag)
 {
-  aes_gcm (plaintext, (u8x16u *) cyphertext, aad, (u8 *) iv, (u8x16u *) tag,
+  aes_gcm (plaintext, cyphertext, aad, (u8 *) iv, (u8x16u *) tag,
 	   data_bytes, aad_bytes, tag_bytes, kd, AES_KEY_ROUNDS (AES_KEY_256),
 	   /* is_encrypt */ 1);
 }
@@ -1286,7 +1263,7 @@ clib_aes128_gcm_dec (const aes_gcm_key_data_t *kd, const u8 *cyphertext,
 		     u32 data_bytes, const u8 *aad, u32 aad_bytes,
 		     const u8 *iv, const u8 *tag, u32 tag_bytes, u8 *plaintext)
 {
-  return aes_gcm (cyphertext, (u8x16u *) plaintext, aad, (u8 *) iv,
+  return aes_gcm (cyphertext, plaintext, aad, (u8 *) iv,
 		  (u8x16u *) tag, data_bytes, aad_bytes, tag_bytes, kd,
 		  AES_KEY_ROUNDS (AES_KEY_128), /* is_encrypt */ 0);
 }
@@ -1296,7 +1273,7 @@ clib_aes256_gcm_dec (const aes_gcm_key_data_t *kd, const u8 *cyphertext,
 		     u32 data_bytes, const u8 *aad, u32 aad_bytes,
 		     const u8 *iv, const u8 *tag, u32 tag_bytes, u8 *plaintext)
 {
-  return aes_gcm (cyphertext, (u8x16u *) plaintext, aad, (u8 *) iv,
+  return aes_gcm (cyphertext, plaintext, aad, (u8 *) iv,
 		  (u8x16u *) tag, data_bytes, aad_bytes, tag_bytes, kd,
 		  AES_KEY_ROUNDS (AES_KEY_256), /* is_encrypt */ 0);
 }
