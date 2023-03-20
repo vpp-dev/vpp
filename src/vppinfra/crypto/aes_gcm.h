@@ -70,100 +70,6 @@ static const u32x16 ctr_4444 = {
 #endif
 static const u32x4 ctr_inv_1 = { 0, 0, 0, 1 << 24 };
 
-static_always_inline void
-aes_gcm_enc_first_round (aes_gcm_ctx_t *ctx, aes_data_t *r, int n_blocks)
-{
-#if N == 64
-  u8x64 k = ctx->Ke4[0];
-  int i = 0;
-
-  /* As counter is stored in network byte order for performance reasons we
-     are incrementing least significant byte only except in case where we
-     overlow. As we are processing four 512-blocks in parallel except the
-     last round, overflow can happen only when n == 4 */
-
-  if (n_blocks == 4)
-    for (; i < 2; i++)
-      {
-	r[i] = k ^ (u8x64) ctx->Y4;
-	ctx->Y4 += ctr_inv_4444;
-      }
-
-  if (n_blocks == 4 && PREDICT_FALSE ((u8) ctx->counter == 242))
-    {
-      u32x16 Yr = (u32x16) u8x64_reflect_u8x16 ((u8x64) ctx->Y4);
-
-      for (; i < n_blocks; i++)
-	{
-	  r[i] = k ^ (u8x64) ctx->Y4;
-	  Yr += ctr_4444;
-	  ctx->Y4 = (u32x16) u8x64_reflect_u8x16 ((u8x64) Yr);
-	}
-    }
-  else
-    {
-      for (; i < n_blocks; i++)
-	{
-	  r[i] = k ^ (u8x64) ctx->Y4;
-	  ctx->Y4 += ctr_inv_4444;
-	}
-    }
-  ctx->counter += n_blocks * 4;
-#else
-  u8x16 k = ctx->Ke[0];
-  int i = 0;
-
-  if (PREDICT_TRUE ((u8) ctx->counter < 0xfe) || n_blocks < 3)
-    {
-      for (; i < n_blocks; i++)
-	{
-	  r[i] = k ^ (u8x16) ctx->Y;
-	  ctx->Y += ctr_inv_1;
-	}
-      ctx->counter += n_blocks;
-    }
-  else
-    {
-      r[i++] = k ^ (u8x16) ctx->Y;
-      ctx->Y += ctr_inv_1;
-      ctx->counter += 1;
-
-      for (; i < n_blocks; i++)
-	{
-	  r[i] = k ^ (u8x16) ctx->Y;
-	  ctx->counter++;
-	  ctx->Y[3] = clib_host_to_net_u32 (ctx->counter);
-	}
-    }
-#endif
-}
-
-static_always_inline void
-aes_gcm_enc_round (aes_data_t *r, aes_data_t k, int n_blocks)
-{
-  for (int i = 0; i < n_blocks; i++)
-#if N == 64
-    r[i] = aes_enc_round_x4 (r[i], k);
-#else
-    r[i] = aes_enc_round (r[i], k);
-#endif
-}
-
-static_always_inline void
-aes_gcm_enc_last_round (aes_gcm_ctx_t *ctx, aes_data_t *r, aes_data_t *d,
-			const aes_data_t *k, int n_blocks)
-{
-  /* additional ronuds for AES-192 and AES-256 */
-  for (int i = 10; i < ctx->rounds; i++)
-    aes_gcm_enc_round (r, k[i], n_blocks);
-
-  for (int i = 0; i < n_blocks; i++)
-#if N == 64
-    d[i] ^= aes_enc_last_round_x4 (r[i], k[ctx->rounds]);
-#else
-    d[i] ^= aes_enc_last_round (r[i], k[ctx->rounds]);
-#endif
-}
 
 static_always_inline void
 aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
@@ -390,6 +296,101 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
       ghash_reduce2 (gd);
       ctx->T = ghash_final (gd);
     }
+#endif
+}
+
+static_always_inline void
+aes_gcm_enc_first_round (aes_gcm_ctx_t *ctx, aes_data_t *r, int n_blocks)
+{
+#if N == 64
+  u8x64 k = ctx->Ke4[0];
+  int i = 0;
+
+  /* As counter is stored in network byte order for performance reasons we
+     are incrementing least significant byte only except in case where we
+     overlow. As we are processing four 512-blocks in parallel except the
+     last round, overflow can happen only when n == 4 */
+
+  if (n_blocks == 4)
+    for (; i < 2; i++)
+      {
+	r[i] = k ^ (u8x64) ctx->Y4;
+	ctx->Y4 += ctr_inv_4444;
+      }
+
+  if (n_blocks == 4 && PREDICT_FALSE ((u8) ctx->counter == 242))
+    {
+      u32x16 Yr = (u32x16) u8x64_reflect_u8x16 ((u8x64) ctx->Y4);
+
+      for (; i < n_blocks; i++)
+	{
+	  r[i] = k ^ (u8x64) ctx->Y4;
+	  Yr += ctr_4444;
+	  ctx->Y4 = (u32x16) u8x64_reflect_u8x16 ((u8x64) Yr);
+	}
+    }
+  else
+    {
+      for (; i < n_blocks; i++)
+	{
+	  r[i] = k ^ (u8x64) ctx->Y4;
+	  ctx->Y4 += ctr_inv_4444;
+	}
+    }
+  ctx->counter += n_blocks * 4;
+#else
+  u8x16 k = ctx->Ke[0];
+  int i = 0;
+
+  if (PREDICT_TRUE ((u8) ctx->counter < 0xfe) || n_blocks < 3)
+    {
+      for (; i < n_blocks; i++)
+	{
+	  r[i] = k ^ (u8x16) ctx->Y;
+	  ctx->Y += ctr_inv_1;
+	}
+      ctx->counter += n_blocks;
+    }
+  else
+    {
+      r[i++] = k ^ (u8x16) ctx->Y;
+      ctx->Y += ctr_inv_1;
+      ctx->counter += 1;
+
+      for (; i < n_blocks; i++)
+	{
+	  r[i] = k ^ (u8x16) ctx->Y;
+	  ctx->counter++;
+	  ctx->Y[3] = clib_host_to_net_u32 (ctx->counter);
+	}
+    }
+#endif
+}
+
+static_always_inline void
+aes_gcm_enc_round (aes_data_t *r, aes_data_t k, int n_blocks)
+{
+  for (int i = 0; i < n_blocks; i++)
+#if N == 64
+    r[i] = aes_enc_round_x4 (r[i], k);
+#else
+    r[i] = aes_enc_round (r[i], k);
+#endif
+}
+
+static_always_inline void
+aes_gcm_enc_last_round (aes_gcm_ctx_t *ctx, aes_data_t *r, aes_data_t *d,
+			const aes_data_t *k, int n_blocks)
+{
+  /* additional ronuds for AES-192 and AES-256 */
+  for (int i = 10; i < ctx->rounds; i++)
+    aes_gcm_enc_round (r, k[i], n_blocks);
+
+  for (int i = 0; i < n_blocks; i++)
+#if N == 64
+    d[i] ^= aes_enc_last_round_x4 (r[i], k[ctx->rounds]);
+#else
+    d[i] ^= aes_enc_last_round (r[i], k[ctx->rounds]);
 #endif
 }
 
