@@ -734,25 +734,20 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 		    uword n_bytes)
 {
   int i;
+  uword n_lanes = (n_blocks -1) * N_LANES + (n_bytes + 15) / 16;
+  aes_ghash_t *Hi = (aes_ghash_t*) (ctx->Hi + NUM_HI - n_lanes);
+
+  if (n_bytes != N)
+    {
 #if N == 64
-  int n_128bit_blocks;
-  uword n_lanes = (n_bytes + 15) / 16;
   u64 byte_mask = _bextr_u64 (-1LL, 0, n_bytes);
-  n_128bit_blocks = (n_blocks - 1) * 4 + ((n_bytes + 15) >> 4);
-
-  fformat (stderr, "%u %u %u\n", n_lanes, n_128bit_blocks, n_bytes);
-  u8x64u *Hi = (u8x64u *) (ctx->Hi + NUM_HI - n_128bit_blocks);
-
   d[n_blocks - 1] =
     u8x64_mask_blend (u8x64_zero (), d[n_blocks - 1], byte_mask);
 #elif N == 32
-  u8x32u *Hi = (u8x32u *) ctx->Hi + NUM_HI - n_blocks;
 #else
-  u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - n_blocks;
-
-  if (n_bytes)
     d[n_blocks - 1] = aes_byte_mask (d[n_blocks - 1], n_bytes);
 #endif
+    }
 
   aes_gcm_ghash_mul_first (ctx, d[0], Hi[0]);
 
@@ -819,7 +814,8 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
       ctx->last = 1;
       if (n_left > 3 * N)
 	{
-	  aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 * N, /* with_ghash */ 0);
+	  aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 * N,
+			/* with_ghash */ 0);
 	  aes_gcm_ghash_last (ctx, d, 4, n_left - 3 * N);
 	}
       else if (n_left > 2 * N)
@@ -862,11 +858,7 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
 
   if (n_left == 0)
     {
-#if N == 64
-      aes_gcm_ghash_last (ctx, d, 4, 64);
-#else
-      aes_gcm_ghash_last (ctx, d, 4, 0);
-#endif
+      aes_gcm_ghash_last (ctx, d, 4, N);
       return;
     }
 
@@ -874,7 +866,7 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
 
   if (n_left > 3 * N)
     {
-      aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 *N, /* with_ghash */ 1);
+      aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 * N, /* with_ghash */ 1);
       aes_gcm_ghash_last (ctx, d, 4, n_left - 3 * N);
     }
   else if (n_left > 2 * N)
