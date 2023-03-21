@@ -21,6 +21,7 @@ typedef u8x64u aes_datau_t;
 typedef u32x16 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x64_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x64_store_partial (v, (u8 *) (p), n)
+#define aes_gcm_splat(v)	       u8x64_splat (v)
 #define aes_gcm_reflect(r)	       u8x64_reflect_u8x16 (r)
 #define aes_gcm_ghash_reduce(c)	       ghash4_reduce (&(c)->gd)
 #define aes_gcm_ghash_reduce2(c)       ghash4_reduce2 (&(c)->gd)
@@ -35,6 +36,7 @@ typedef u8x32u aes_datau_t;
 typedef u32x8 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x32_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x32_store_partial (v, (u8 *) (p), n)
+#define aes_gcm_splat(v)	       u8x32_splat (v)
 #define aes_gcm_reflect(r)	       u8x32_reflect_u8x16 (r)
 #define aes_gcm_ghash_reduce(c)	       ghash2_reduce (&(c)->gd)
 #define aes_gcm_ghash_reduce2(c)       ghash2_reduce2 (&(c)->gd)
@@ -49,6 +51,7 @@ typedef u8x16u aes_datau_t;
 typedef u32x4 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x16_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x16_store_partial (v, (u8 *) (p), n)
+#define aes_gcm_splat(v)	       u8x16_splat (v)
 #define aes_gcm_reflect(r)	       u8x16_reflect (r)
 #define aes_gcm_ghash_reduce(c)	       ghash_reduce (&(c)->gd)
 #define aes_gcm_ghash_reduce2(c)       ghash_reduce2 (&(c)->gd)
@@ -376,7 +379,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 
       if (ctx->last)
 #if N == 64
-	d[i] = u8x64_mask_load (u8x64_splat (0), (u8 *) (sv + i), byte_mask);
+	d[i] = u8x64_mask_load (u8x64_zero (), (u8 *) (sv + i), byte_mask);
 #else
 	d[n - 1] =
 	  aes_gcm_load_partial ((u8 *) (sv + n - 1), last_block_bytes);
@@ -419,7 +422,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 
       if (ctx->last)
 #if N == 64
-	d[i] = u8x64_mask_load (u8x64_splat (0), (u8 *) (sv + i), byte_mask);
+	d[i] = u8x64_mask_load (u8x64_zero (), (u8 *) (sv + i), byte_mask);
 #else
 	d[n - 1] = aes_gcm_load_partial (sv + n - 1, last_block_bytes);
 #endif
@@ -533,9 +536,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
       d[3] = sv[7];
     }
 
-#if N == 64
-
-  /* GHASH multiply block 3 */
+  /* GHASH multiply block 4 */
   aes_gcm_ghash_mul_next (ctx, (d[0]), Hi[4]);
 
   /* AES rounds 0 and 1 */
@@ -578,56 +579,6 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
     for (int i = 0; i < 4; i++)
       d[i] = sv[i + 4];
 
-#else
-
-  /* GHASH multiply block 4 */
-  aes_gcm_ghash_mul_next (ctx, (d[0]), Hi[4]);
-
-  /* AES rounds 0, 1 and 2 */
-  aes_gcm_enc_first_round (ctx, r, 4);
-  aes_gcm_enc_round (r, k[1], 4);
-  aes_gcm_enc_round (r, k[2], 4);
-
-  /* GHASH multiply block 5 */
-  aes_gcm_ghash_mul_next (ctx, (d[1]), Hi[5]);
-
-  /* AES rounds 3 and 4 */
-  aes_gcm_enc_round (r, k[3], 4);
-  aes_gcm_enc_round (r, k[4], 4);
-
-  /* GHASH multiply block 6 */
-  aes_gcm_ghash_mul_next (ctx, (d[2]), Hi[6]);
-
-  /* AES rounds 5 and 6 */
-  aes_gcm_enc_round (r, k[5], 4);
-  aes_gcm_enc_round (r, k[6], 4);
-
-  /* GHASH multiply block 7 */
-  aes_gcm_ghash_mul_next (ctx, (d[3]), Hi[7]);
-
-  /* AES rounds 7 and 8 */
-  aes_gcm_enc_round (r, k[7], 4);
-  aes_gcm_enc_round (r, k[8], 4);
-
-  /* GHASH reduce 1st step */
-  aes_gcm_ghash_reduce (ctx);
-
-  /* AES round 9 */
-  aes_gcm_enc_round (r, k[9], 4);
-
-  /* load data - encrypt round */
-  if (ctx->operation == AES_GCM_OP_ENCRYPT)
-    {
-      d[0] = sv[4];
-      d[1] = sv[5];
-      d[2] = sv[6];
-      d[3] = sv[7];
-    }
-
-  /* GHASH reduce 2nd step */
-  aes_gcm_ghash_reduce2 (ctx);
-
-#endif
   /* AES last round(s) */
   aes_gcm_enc_last_round (ctx, r, d, k, 4);
 
@@ -638,11 +589,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   dv[7] = d[3];
 
   /* GHASH final step */
-#if N == 64
   aes_gcm_ghash_final (ctx);
-#else
-  aes_gcm_ghash_final (ctx);
-#endif
 }
 
 static_always_inline void
@@ -659,13 +606,7 @@ aes_gcm_mask_bytes (aes_data_t *d, uword n_bytes)
 	   48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63 },
   };
 
-#if N == 64
-  d[0] &= (u8x64_splat (n_bytes) > scale.r);
-#elif N == 32
-  d[0] &= (u8x32_splat (n_bytes) > scale.r);
-#else
-  d[0] &= (u8x16_splat (n_bytes) > scale.r);
-#endif
+  d[0] &= (aes_gcm_splat (n_bytes) > scale.r);
 }
 
 static_always_inline void
