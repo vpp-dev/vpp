@@ -188,6 +188,12 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
       aes_gcm_ghash_reduce2 (ctx);
       aes_gcm_ghash_final (ctx);
     }
+
+  if (ctx->operation == AES_GCM_OP_GMAC)
+    {
+      u8x16 r = (u8x16) ((u64x2){ ctx->data_bytes, ctx->aad_bytes } << 3);
+      ctx->T = ghash_mul (r ^ ctx->T, ctx->Hi[NUM_HI - 1]);
+    }
 }
 
 static_always_inline void
@@ -755,6 +761,14 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
   aes_gcm_ghash_reduce (ctx);
   aes_gcm_ghash_reduce2 (ctx);
   aes_gcm_ghash_final (ctx);
+
+  u8x16 r = (u8x16) ((u64x2){ ctx->data_bytes, ctx->aad_bytes } << 3);
+
+  ghash_data_t _gd, *gd = &_gd;
+  ghash_mul_first (gd, r ^ ctx->T, ctx->Hi[NUM_HI - 1]);
+  ghash_reduce (gd);
+  ghash_reduce2 (gd);
+  ctx->T = ghash_final (gd);
 }
 
 static_always_inline void
@@ -917,10 +931,13 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
 #endif
 
   /* encrypt counter 0 E(Y0, k) */
-  EY0 = kd->Ke[0] ^ (u8x16) ctx->Y0;
-  for (i = 1; i < aes_rounds; i += 1)
-    EY0 = aes_enc_round (EY0, kd->Ke[i]);
-  EY0 = aes_enc_last_round (EY0, kd->Ke[aes_rounds]);
+  if (op != AES_GCM_OP_ENCRYPT)
+    {
+      ctx->Y0 ^= kd->Ke[0];
+      for (i = 1; i < aes_rounds; i += 1)
+	ctx->Y0 = aes_enc_round (ctx->Y0, kd->Ke[i]);
+      ctx->Y0 = aes_enc_last_round (ctx->Y0, kd->Ke[aes_rounds]);
+    }
 
   /* calculate ghash for AAD */
   aes_gcm_ghash (ctx, addt, aad_bytes);
@@ -934,8 +951,11 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
     aes_gcm_dec (ctx, src, dst, data_bytes);
 
   /* Finalize ghash - data bytes and aad bytes converted to bits */
-  r = (u8x16) ((u64x2){ data_bytes, aad_bytes } << 3);
-  ctx->T = ghash_mul (r ^ ctx->T, kd->Hi[NUM_HI - 1]);
+  if (op == AES_GCM_OP_DECRYPT)
+    {
+      r = (u8x16) ((u64x2){ data_bytes, aad_bytes } << 3);
+      ctx->T = ghash_mul (r ^ ctx->T, kd->Hi[NUM_HI - 1]);
+    }
 
   /* final tag is */
   ctx->T = u8x16_reflect (ctx->T) ^ ctx->Y0;
