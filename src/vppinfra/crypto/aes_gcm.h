@@ -83,6 +83,9 @@ typedef struct
   aes_gcm_op_t operation;
   int last;
   u8 rounds;
+  uword data_bytes;
+  uword aad_bytes;
+
   u8x16 T;
 
   /* expaded keys */
@@ -884,17 +887,19 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
 	 const aes_gcm_key_data_t *kd, int aes_rounds, aes_gcm_op_t op)
 {
   int i;
-  u8x16 r, EY0;
+  u8x16 r;
   u8 *addt = (u8 *) aad;
 
   aes_gcm_ctx_t _ctx = { .counter = 2,
 			 .rounds = aes_rounds,
 			 .operation = op,
+			 .data_bytes = data_bytes,
+			 .aad_bytes = aad_bytes,
 			 .Hi = kd->Hi },
 		*ctx = &_ctx;
 
   /* initalize counter */
-  ctx->Y0 = (u32x4) (u64x2) {*(u64u *) ivp ,0};
+  ctx->Y0 = (u32x4) (u64x2){ *(u64u *) ivp, 0 };
   ctx->Y0[2] = *(u32u *) (ivp + 8);
   ctx->Y0[3] = 1 << 24;
 #if N == 64
@@ -933,7 +938,7 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
   ctx->T = ghash_mul (r ^ ctx->T, kd->Hi[NUM_HI - 1]);
 
   /* final tag is */
-  ctx->T = u8x16_reflect (ctx->T) ^ EY0;
+  ctx->T = u8x16_reflect (ctx->T) ^ ctx->Y0;
 
   /* tag_len 16 -> 0 */
   tag_len &= 0xf;
