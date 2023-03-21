@@ -536,18 +536,9 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 {
   aes_data_t r[4];
   const aes_data_t *k = ctx->Ke;
-#if N == 64
-  u8x64 *Hi = (u8x64 *) (ctx->Hi + NUM_HI - 32);
-  u8x64u *sv = (u8x64u *) src, *dv = (u8x64u *) dst;
-#elif N == 32
-  u8x32 *Hi = (u8x32 *) ctx->Hi + NUM_HI - 16;
-  u8x32u *sv = (u8x32u *) src;
-  u8x32u *dv = (u8x32u *) dst;
-#else
-  u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - 8;
-  u8x16u *sv = (u8x16u *) src;
-  u8x16u *dv = (u8x16u *) dst;
-#endif
+  const aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - N_LANES * 8);
+  const aes_datau_t *sv = (aes_datau_t *) src;
+  aes_datau_t *dv = (aes_datau_t *) dst;
 
   /* AES rounds 0 and 1 */
   aes_gcm_enc_first_round (ctx, r, 4);
