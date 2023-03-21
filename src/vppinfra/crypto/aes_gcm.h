@@ -57,6 +57,14 @@ typedef u32x4 aes_gcm_counter_t;
   ghash_mul_next (&(c)->gd, aes_gcm_reflect (d), h)
 #endif
 
+typedef enum
+{
+  AES_GCM_OP_UNKNONW = 0,
+  AES_GCM_OP_ENCRYPT,
+  AES_GCM_OP_DECRYPT,
+  AES_GCM_OP_GMAC
+} aes_gcm_op_t;
+
 typedef struct
 {
   /* pre-calculated hash key values */
@@ -72,7 +80,7 @@ typedef struct
 
 typedef struct
 {
-  int is_encrypt;
+  aes_gcm_op_t operation;
   int last;
   u8 rounds;
   u8x16 T;
@@ -333,17 +341,17 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
 #elif N == 32
   u8x32 r[4];
   u8x32u *inv = (u8x32u *) in, *outv = (u8x32u *) out;
-  int ghash_blocks = (ctx->is_encrypt) ? 4 : n, gc = 1;
+  int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
   u8x32 *Hi = (u8x32 *) ctx->Hi + NUM_HI - ghash_blocks;
 #else
   u8x16 r[n];
-  int ghash_blocks = (ctx->is_encrypt) ? 4 : n, gc = 1;
+  int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
   u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - ghash_blocks;
   u8x16u *inv = (u8x16u *) in, *outv = (u8x16u *) out;
 #endif
 
 #if N == 64
-  if (ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_ENCRYPT)
     {
       /* during encryption we either hash four 512-bit blocks from previous
 	 round or we don't hash at all */
@@ -370,7 +378,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
 
 #if N == 64
   /* load 4 blocks of data - decrypt round */
-  if (!ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       for (i = 0; i < n - ctx->last; i++)
 	d[i] = inv[i];
@@ -408,7 +416,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
     aes_gcm_ghash_mul_next (ctx, (d[3]), Hi[3]);
 
   /* load 4 blocks of data - decrypt round */
-  if (ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_ENCRYPT)
     {
       for (i = 0; i < n - ctx->last; i++)
 	d[i] = inv[i];
@@ -439,7 +447,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
 
 #else
   /* load data - decrypt round */
-  if (!ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       for (int i = 0; i < n - ctx->last; i++)
 	d[i] = inv[i];
@@ -485,7 +493,7 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
     aes_gcm_ghash_reduce (ctx);
 
   /* load data - encrypt round */
-  if (ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_ENCRYPT)
     {
       for (int i = 0; i < n - ctx->last; i++)
 	d[i] = inv[i];
@@ -538,7 +546,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   aes_gcm_enc_round (r, k[1], 4);
 
   /* load 4 blocks of data - decrypt round */
-  if (!ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       d[0] = sv[0];
       d[1] = sv[1];
@@ -575,7 +583,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   aes_gcm_enc_round (r, k[9], 4);
 
   /* load 4 blocks of data - encrypt round */
-  if (ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_ENCRYPT)
     {
       d[0] = sv[0];
       d[1] = sv[1];
@@ -593,7 +601,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   dv[3] = d[3];
 
   /* load next 4 blocks of data data - decrypt round */
-  if (!ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       d[0] = sv[4];
       d[1] = sv[5];
@@ -642,7 +650,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   aes_gcm_ghash_reduce2 (ctx);
 
   /* load 4 blocks of data - encrypt round */
-  if (ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_ENCRYPT)
     for (int i = 0; i < 4; i++)
       d[i] = sv[i + 4];
 
@@ -684,7 +692,7 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   aes_gcm_enc_round (r, k[9], 4);
 
   /* load data - encrypt round */
-  if (ctx->is_encrypt)
+  if (ctx->operation == AES_GCM_OP_ENCRYPT)
     {
       d[0] = sv[4];
       d[1] = sv[5];
@@ -873,7 +881,7 @@ aes_gcm_dec (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, uword n_left)
 static_always_inline int
 aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
 	 u32 data_bytes, u32 aad_bytes, u8 tag_len,
-	 const aes_gcm_key_data_t *kd, int aes_rounds, int is_encrypt)
+	 const aes_gcm_key_data_t *kd, int aes_rounds, aes_gcm_op_t op)
 {
   int i;
   u8x16 r, EY0;
@@ -881,7 +889,7 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
 
   aes_gcm_ctx_t _ctx = { .counter = 2,
 			 .rounds = aes_rounds,
-			 .is_encrypt = is_encrypt,
+			 .operation = op,
 			 .Hi = kd->Hi },
 		*ctx = &_ctx;
 
@@ -915,9 +923,9 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
   clib_prefetch_load (tag);
 
   /* ghash and encrypt/edcrypt  */
-  if (is_encrypt)
+  if (op == AES_GCM_OP_ENCRYPT)
     aes_gcm_enc (ctx, src, dst, data_bytes);
-  else
+  else if (op == AES_GCM_OP_DECRYPT)
     aes_gcm_dec (ctx, src, dst, data_bytes);
 
   /* Finalize ghash - data bytes and aad bytes converted to bits */
@@ -930,7 +938,7 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
   /* tag_len 16 -> 0 */
   tag_len &= 0xf;
 
-  if (is_encrypt)
+  if (op == AES_GCM_OP_ENCRYPT || op == AES_GCM_OP_GMAC)
     {
       /* store tag */
       if (tag_len)
@@ -983,8 +991,7 @@ clib_aes128_gcm_enc (const aes_gcm_key_data_t *kd, const u8 *plaintext,
 		     const u8 *iv, u32 tag_bytes, u8 *cyphertext, u8 *tag)
 {
   aes_gcm (plaintext, cyphertext, aad, (u8 *) iv, tag, data_bytes, aad_bytes,
-	   tag_bytes, kd, AES_KEY_ROUNDS (AES_KEY_128),
-	   /* is_encrypt */ 1);
+	   tag_bytes, kd, AES_KEY_ROUNDS (AES_KEY_128), AES_GCM_OP_ENCRYPT);
 }
 
 static_always_inline void
@@ -993,8 +1000,7 @@ clib_aes256_gcm_enc (const aes_gcm_key_data_t *kd, const u8 *plaintext,
 		     const u8 *iv, u32 tag_bytes, u8 *cyphertext, u8 *tag)
 {
   aes_gcm (plaintext, cyphertext, aad, (u8 *) iv, tag, data_bytes, aad_bytes,
-	   tag_bytes, kd, AES_KEY_ROUNDS (AES_KEY_256),
-	   /* is_encrypt */ 1);
+	   tag_bytes, kd, AES_KEY_ROUNDS (AES_KEY_256), AES_GCM_OP_ENCRYPT);
 }
 
 static_always_inline int
@@ -1004,7 +1010,7 @@ clib_aes128_gcm_dec (const aes_gcm_key_data_t *kd, const u8 *cyphertext,
 {
   return aes_gcm (cyphertext, plaintext, aad, (u8 *) iv, (u8 *) tag,
 		  data_bytes, aad_bytes, tag_bytes, kd,
-		  AES_KEY_ROUNDS (AES_KEY_128), /* is_encrypt */ 0);
+		  AES_KEY_ROUNDS (AES_KEY_128), AES_GCM_OP_DECRYPT);
 }
 
 static_always_inline int
@@ -1014,7 +1020,7 @@ clib_aes256_gcm_dec (const aes_gcm_key_data_t *kd, const u8 *cyphertext,
 {
   return aes_gcm (cyphertext, plaintext, aad, (u8 *) iv, (u8 *) tag,
 		  data_bytes, aad_bytes, tag_bytes, kd,
-		  AES_KEY_ROUNDS (AES_KEY_256), /* is_encrypt */ 0);
+		  AES_KEY_ROUNDS (AES_KEY_256), AES_GCM_OP_DECRYPT);
 }
 
 static_always_inline void
@@ -1022,7 +1028,7 @@ clib_aes128_gmac (const aes_gcm_key_data_t *kd, const u8 *data, u32 data_bytes,
 		  const u8 *iv, u32 tag_bytes, u8 *tag)
 {
   aes_gcm (0, 0, data, (u8 *) iv, tag, 0, data_bytes, tag_bytes, kd,
-	   AES_KEY_ROUNDS (AES_KEY_128), /* is_encrypt */ 1);
+	   AES_KEY_ROUNDS (AES_KEY_128), AES_GCM_OP_GMAC);
 }
 
 static_always_inline void
@@ -1030,7 +1036,7 @@ clib_aes256_gmac (const aes_gcm_key_data_t *kd, const u8 *data, u32 data_bytes,
 		  const u8 *iv, u32 tag_bytes, u8 *tag)
 {
   aes_gcm (0, 0, data, (u8 *) iv, tag, 0, data_bytes, tag_bytes, kd,
-	   AES_KEY_ROUNDS (AES_KEY_256), /* is_encrypt */ 1);
+	   AES_KEY_ROUNDS (AES_KEY_256), AES_GCM_OP_GMAC);
 }
 
 #endif /* __crypto_aes_gcm_h__ */
