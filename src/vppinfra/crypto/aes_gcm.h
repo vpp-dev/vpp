@@ -736,7 +736,7 @@ aes_gcm_mask_bytes (aes_data_t *d, uword n_bytes)
   {
     u8 b[64];
     aes_data_t r;
-  } __clib_unused scale = {
+  } scale = {
     .b = { 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15,
 	   16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
 	   32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
@@ -757,8 +757,9 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 		    uword n_bytes)
 {
   int i;
-  uword n_lanes = (n_blocks - 1) * N_LANES + (n_bytes + 15) / 16;
+  uword n_lanes = (n_bytes + 15) / 16;
   aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - n_lanes);
+  n_bytes -= (n_blocks - 1) * N;
 
   if (n_bytes != N)
     aes_gcm_mask_bytes (d + n_blocks - 1, n_bytes);
@@ -830,18 +831,18 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
 	{
 	  aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 * N,
 			/* with_ghash */ 0);
-	  aes_gcm_ghash_last (ctx, d, 4, n_left - 3 * N);
+	  aes_gcm_ghash_last (ctx, d, 4, n_left);
 	}
       else if (n_left > 2 * N)
 	{
 	  aes_gcm_calc (ctx, d, src, dst, 3, n_left - 2 * N,
 			/* with_ghash */ 0);
-	  aes_gcm_ghash_last (ctx, d, 3, n_left - 2 * N);
+	  aes_gcm_ghash_last (ctx, d, 3, n_left);
 	}
       else if (n_left > N)
 	{
 	  aes_gcm_calc (ctx, d, src, dst, 2, n_left - N, /* with_ghash */ 0);
-	  aes_gcm_ghash_last (ctx, d, 2, n_left - N);
+	  aes_gcm_ghash_last (ctx, d, 2, n_left);
 	}
       else
 	{
@@ -872,7 +873,7 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
 
   if (n_left == 0)
     {
-      aes_gcm_ghash_last (ctx, d, 4, N);
+      aes_gcm_ghash_last (ctx, d, 4, 4 * N);
       return;
     }
 
@@ -881,17 +882,17 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
   if (n_left > 3 * N)
     {
       aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 * N, /* with_ghash */ 1);
-      aes_gcm_ghash_last (ctx, d, 4, n_left - 3 * N);
+      aes_gcm_ghash_last (ctx, d, 4, n_left);
     }
   else if (n_left > 2 * N)
     {
       aes_gcm_calc (ctx, d, src, dst, 3, n_left - 2 * N, /* with_ghash */ 1);
-      aes_gcm_ghash_last (ctx, d, 3, n_left - 2 * N);
+      aes_gcm_ghash_last (ctx, d, 3, n_left);
     }
   else if (n_left > N)
     {
       aes_gcm_calc (ctx, d, src, dst, 2, n_left - N, /* with_ghash */ 1);
-      aes_gcm_ghash_last (ctx, d, 2, n_left - N);
+      aes_gcm_ghash_last (ctx, d, 2, n_left);
     }
   else
     {

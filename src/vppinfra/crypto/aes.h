@@ -28,10 +28,6 @@ typedef enum
 #define AES_KEY_ROUNDS(x)		(10 + x * 2)
 #define AES_KEY_BYTES(x)		(16 + x * 8)
 
-static const u8x16 byte_mask_scale = {
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
-};
-
 static_always_inline u8x16
 aes_block_load (u8 * p)
 {
@@ -129,12 +125,6 @@ static_always_inline void
 aes_block_store (u8 * p, u8x16 r)
 {
   *(u8x16u *) p = r;
-}
-
-static_always_inline u8x16
-aes_byte_mask (u8x16 x, u8 n_bytes)
-{
-  return x & (u8x16_splat (n_bytes) > byte_mask_scale);
 }
 
 static_always_inline u8x16
