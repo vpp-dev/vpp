@@ -22,7 +22,12 @@ typedef u32x16 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x64_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x64_store_partial (v, (u8 *) (p), n)
 #define aes_gcm_reflect(r)	       u8x64_reflect_u8x16 (r)
-#elif defined(__VxAES__)
+#define aes_gcm_ghash_reduce(c)	       ghash4_reduce (&(c)->gd)
+#define aes_gcm_ghash_reduce2(c)       ghash4_reduce2 (&(c)->gd)
+#define aes_gcm_ghash_final(c)	       (c)->T = ghash4_final (&(c)->gd)
+#define aes_gcm_ghash_mul_next(c, d, h)                                       \
+  ghash4_mul_next (&(c)->gd, aes_gcm_reflect (d), h)
+#elif defined(__VAES__)
 #define N			       32
 typedef u8x32 aes_data_t;
 typedef u8x32u aes_ghash_t;
@@ -31,6 +36,11 @@ typedef u32x8 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x32_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x32_store_partial (v, (u8 *) (p), n)
 #define aes_gcm_reflect(r)	       u8x32_reflect_u8x16 (r)
+#define aes_gcm_ghash_reduce(c)	       ghash2_reduce (&(c)->gd)
+#define aes_gcm_ghash_reduce2(c)       ghash2_reduce2 (&(c)->gd)
+#define aes_gcm_ghash_final(c)	       (c)->T = ghash2_final (&(c)->gd)
+#define aes_gcm_ghash_mul_next(c, d, h)                                       \
+  ghash2_mul_next (&(c)->gd, aes_gcm_reflect (d), h)
 #else
 #define N			       16
 typedef u8x16 aes_data_t;
@@ -39,7 +49,12 @@ typedef u8x16u aes_datau_t;
 typedef u32x4 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x16_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x16_store_partial (v, (u8 *) (p), n)
-#define aes_gcm_reflect(r)	       u8x16_reflect(r)
+#define aes_gcm_reflect(r)	       u8x16_reflect (r)
+#define aes_gcm_ghash_reduce(c)	       ghash_reduce (&(c)->gd)
+#define aes_gcm_ghash_reduce2(c)       ghash_reduce2 (&(c)->gd)
+#define aes_gcm_ghash_final(c)	       (c)->T = ghash_final (&(c)->gd)
+#define aes_gcm_ghash_mul_next(c, d, h)                                       \
+  ghash_mul_next (&(c)->gd, aes_gcm_reflect (d), h)
 #endif
 
 typedef struct
@@ -68,6 +83,7 @@ typedef struct
 
   /* counter */
   u32 counter;
+  u32x4 Y0;
   aes_gcm_counter_t Y;
 
   /* ghash */
@@ -87,50 +103,6 @@ aes_gcm_ghash_mul_first (aes_gcm_ctx_t *ctx, aes_data_t data, aes_ghash_t H)
   ghash2_mul_first (&ctx->gd, aes_gcm_reflect (data) ^ tag2, H);
 #else
   ghash_mul_first (&ctx->gd, aes_gcm_reflect (data) ^ ctx->T, H);
-#endif
-}
-static_always_inline void
-aes_gcm_ghash_mul_next (aes_gcm_ctx_t *ctx, aes_data_t data, aes_ghash_t H)
-{
-#if N == 64
-  ghash4_mul_next (&ctx->gd, aes_gcm_reflect (data), H);
-#elif N == 32
-  ghash2_mul_next (&ctx->gd, aes_gcm_reflect (data), H);
-#else
-  ghash_mul_next (&ctx->gd, aes_gcm_reflect (data), H);
-#endif
-}
-static_always_inline void
-aes_gcm_ghash_reduce (aes_gcm_ctx_t *ctx)
-{
-#if N == 64
-  ghash4_reduce (&ctx->gd);
-#elif N == 32
-  ghash2_reduce (&ctx->gd);
-#else
-  ghash_reduce (&ctx->gd);
-#endif
-}
-static_always_inline void
-aes_gcm_ghash_reduce2 (aes_gcm_ctx_t *ctx)
-{
-#if N == 64
-  ghash4_reduce2 (&ctx->gd);
-#elif N == 32
-  ghash2_reduce2 (&ctx->gd);
-#else
-  ghash_reduce2 (&ctx->gd);
-#endif
-}
-static_always_inline void
-aes_gcm_ghash_final (aes_gcm_ctx_t *ctx)
-{
-#if N == 64
-  ctx->T = ghash4_final (&ctx->gd);
-#elif N == 32
-  ctx->T = ghash2_final (&ctx->gd);
-#else
-  ctx->T = ghash_final (&ctx->gd);
 #endif
 }
 
@@ -155,13 +127,7 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
 
   if (n_left > 0)
     {
-#if N == 64
-      Hi = (u8x64u *) (ctx->Hi + NUM_HI - ((n_left + 15) / 16));
-#elif N == 32
-      Hi = (u8x32u *) (ctx->Hi + NUM_HI - (n_left + 15) / 16);
-#else
-      Hi = (u8x16 *) (ctx->Hi + NUM_HI - 1);
-#endif
+      Hi = (typeof (Hi)) (ctx->Hi + NUM_HI - (n_left + 15) / 16);
 
       if (n_left < N)
 	{
@@ -171,9 +137,6 @@ aes_gcm_ghash (aes_gcm_ctx_t *ctx, u8 *data, u32 n_left)
 	}
       else
 	{
-#if N == 16
-	  Hi = (u8x16 *) (ctx->Hi + NUM_HI - ((n_left + 15) / 16));
-#endif
 	  aes_gcm_ghash_mul_first (ctx, d[0], Hi[0]);
 	  n_left -= N;
 	  i = 1;
@@ -915,7 +878,6 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
   int i;
   u8x16 r, EY0;
   u8 *addt = (u8 *) aad;
-  vec128_t Y0 = {};
 
   aes_gcm_ctx_t _ctx = { .counter = 2,
 			 .rounds = aes_rounds,
@@ -924,26 +886,25 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
 		*ctx = &_ctx;
 
   /* initalize counter */
-  Y0.as_u64x2[0] = *(u64u *) ivp;
-  Y0.as_u32x4[2] = *(u32u *) (ivp + 8);
-  Y0.as_u32x4[3] = 1 << 24;
+  ctx->Y0 = (u32x4) (u64x2) {*(u64u *) ivp ,0};
+  ctx->Y0[2] = *(u32u *) (ivp + 8);
+  ctx->Y0[3] = 1 << 24;
 #if N == 64
   ctx->Ke = kd->Ke4;
-  ctx->Y = u32x16_splat_u32x4 (Y0.as_u32x4) + (u32x16){
+  ctx->Y = u32x16_splat_u32x4 (ctx->Y0) + (u32x16){
     0, 0, 0, 1 << 24, 0, 0, 0, 2 << 24, 0, 0, 0, 3 << 24, 0, 0, 0, 4 << 24,
   };
 #elif N == 32
   ctx->Ke = kd->Ke2;
-  ctx->Y = u32x8_insert_lo (ctx->Y, Y0.as_u32x4);
-  ctx->Y = u32x8_insert_hi (ctx->Y, Y0.as_u32x4);
-  ctx->Y += (u32x8){ 0, 0, 0, 1 << 24, 0, 0, 0, 2 << 24 };
+  ctx->Y = u32x8_splat_u32x4 (ctx->Y0) +
+	   (u32x8){ 0, 0, 0, 1 << 24, 0, 0, 0, 2 << 24 };
 #else
   ctx->Ke = kd->Ke;
-  ctx->Y = Y0.as_u32x4 + (u32x4){ 0, 0, 0, 1 << 24 };
+  ctx->Y = ctx->Y0 + (u32x4){ 0, 0, 0, 1 << 24 };
 #endif
 
   /* encrypt counter 0 E(Y0, k) */
-  EY0 = kd->Ke[0] ^ Y0.as_u8x16;
+  EY0 = kd->Ke[0] ^ (u8x16) ctx->Y0;
   for (i = 1; i < aes_rounds; i += 1)
     EY0 = aes_enc_round (EY0, kd->Ke[i]);
   EY0 = aes_enc_last_round (EY0, kd->Ke[aes_rounds]);

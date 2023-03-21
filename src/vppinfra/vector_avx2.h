@@ -422,6 +422,12 @@ u8x32_splat_u8x16 (u8x16 a)
   return (u8x32) _mm256_broadcastsi128_si256 ((__m128i) a);
 }
 
+static_always_inline u32x8
+u32x8_splat_u32x4 (u32x4 a)
+{
+  return (u32x8) _mm256_broadcastsi128_si256 ((__m128i) a);
+}
+
 static_always_inline u8x32
 u8x32_load_partial (u8 *data, uword n)
 {
