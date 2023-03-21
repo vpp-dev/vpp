@@ -751,7 +751,7 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 {
   int i;
   uword n_lanes = (n_bytes + 15) / 16;
-  aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - n_lanes);
+  const aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - n_lanes);
   n_bytes -= (n_blocks - 1) * N;
 
   if (n_bytes != N)
