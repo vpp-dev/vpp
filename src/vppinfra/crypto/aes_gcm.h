@@ -729,7 +729,6 @@ aes_gcm_calc_double (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 #endif
 }
 
-
 static_always_inline void
 aes_gcm_mask_bytes (aes_data_t *d, uword n_bytes)
 {
@@ -739,9 +738,9 @@ aes_gcm_mask_bytes (aes_data_t *d, uword n_bytes)
     aes_data_t r;
   } scale = {
     .b = { 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12, 13, 14, 15,
-           16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-           32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
-           48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63 },
+	   16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+	   32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+	   48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63 },
   };
 
 #if N == 64
@@ -758,18 +757,18 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 		    uword n_bytes)
 {
   int i;
-  uword n_lanes = (n_blocks -1) * N_LANES + (n_bytes + 15) / 16;
-  aes_ghash_t *Hi = (aes_ghash_t*) (ctx->Hi + NUM_HI - n_lanes);
+  uword n_lanes = (n_blocks - 1) * N_LANES + (n_bytes + 15) / 16;
+  aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - n_lanes);
 
   if (n_bytes != N)
     {
 #if N == 64
-  u64 byte_mask = _bextr_u64 (-1LL, 0, n_bytes);
-  d[n_blocks - 1] =
-    u8x64_mask_blend (u8x64_zero (), d[n_blocks - 1], byte_mask);
+      u64 byte_mask = _bextr_u64 (-1LL, 0, n_bytes);
+      d[n_blocks - 1] =
+	u8x64_mask_blend (u8x64_zero (), d[n_blocks - 1], byte_mask);
 #elif N == 32
 #else
-    d[n_blocks - 1] = aes_byte_mask (d[n_blocks - 1], n_bytes);
+      d[n_blocks - 1] = aes_byte_mask (d[n_blocks - 1], n_bytes);
 #endif
     }
 
