@@ -344,22 +344,20 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 {
   aes_data_t r[4];
   const aes_data_t *k = ctx->Ke;
-  const aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - N_LANES * 8);
+  //const aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - N_LANES * 8);
   const aes_datau_t *sv = (aes_datau_t *) src;
   aes_datau_t *dv = (aes_datau_t *) dst;
 
 #if N == 64
   uword i, ghash_blocks, gc = 1;
-  u8x64u *Hi, *inv = (u8x64u *) in, *outv = (u8x64u *) out;
+  u8x64u *Hi;
   u64 byte_mask = _bextr_u64 (-1LL, 0, last_block_bytes);
 #elif N == 32
-  u8x32u *inv = (u8x32u *) in, *outv = (u8x32u *) out;
   int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
   u8x32 *Hi = (u8x32 *) ctx->Hi + NUM_HI - ghash_blocks;
 #else
   int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
   u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - ghash_blocks;
-  u8x16u *inv = (u8x16u *) in, *outv = (u8x16u *) out;
 #endif
 
 #if N == 64
@@ -393,10 +391,10 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       for (i = 0; i < n - ctx->last; i++)
-	d[i] = inv[i];
+	d[i] = sv[i];
 
       if (ctx->last)
-	d[i] = u8x64_mask_load (u8x64_splat (0), inv + i, byte_mask);
+	d[i] = u8x64_mask_load (u8x64_splat (0), (u8 *) (sv + i), byte_mask);
     }
 
   /* GHASH multiply block 0 */
@@ -431,10 +429,10 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   if (ctx->operation == AES_GCM_OP_ENCRYPT)
     {
       for (i = 0; i < n - ctx->last; i++)
-	d[i] = inv[i];
+	d[i] = sv[i];
 
       if (ctx->last)
-	d[i] = u8x64_mask_load (u8x64_zero (), inv + i, byte_mask);
+	d[i] = u8x64_mask_load (u8x64_splat (0), (u8 *) (sv + i), byte_mask);
     }
 
   /* AES rounds 8 and 9 */
@@ -446,10 +444,10 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 
   /* store 4 blocks of data */
   for (i = 0; i < n - ctx->last; i++)
-    outv[i] = d[i];
+    dv[i] = d[i];
 
   if (ctx->last)
-    u8x64_mask_store (d[i], outv + i, byte_mask);
+    u8x64_mask_store (d[i], dv + i, byte_mask);
 
   /* GHASH reduce 1st step */
   aes_gcm_ghash_reduce (ctx);
@@ -462,10 +460,10 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       for (int i = 0; i < n - ctx->last; i++)
-	d[i] = inv[i];
+	d[i] = sv[i];
 
       if (ctx->last)
-	d[n - 1] = aes_gcm_load_partial (inv + n - 1, last_block_bytes);
+	d[n - 1] = aes_gcm_load_partial ((u8 *) (sv + n - 1), last_block_bytes);
     }
 
   /* GHASH multiply block 1 */
@@ -508,10 +506,10 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   if (ctx->operation == AES_GCM_OP_ENCRYPT)
     {
       for (int i = 0; i < n - ctx->last; i++)
-	d[i] = inv[i];
+	d[i] = sv[i];
 
       if (ctx->last)
-	d[n - 1] = aes_gcm_load_partial (inv + n - 1, last_block_bytes);
+	d[n - 1] = aes_gcm_load_partial (sv + n - 1, last_block_bytes);
     }
 
   /* GHASH reduce 2nd step */
@@ -523,10 +521,10 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 
   /* store data */
   for (int i = 0; i < n - ctx->last; i++)
-    outv[i] = d[i];
+    dv[i] = d[i];
 
   if (ctx->last)
-    aes_gcm_store_partial (d[n - 1], outv + n - 1, last_block_bytes);
+    aes_gcm_store_partial (d[n - 1], dv + n - 1, last_block_bytes);
 #endif
 
   /* GHASH final step */
