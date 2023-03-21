@@ -347,20 +347,19 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   const aes_datau_t *sv = (aes_datau_t *) src;
   aes_datau_t *dv = (aes_datau_t *) dst;
   uword ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
-  const aes_ghash_t * Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - ghash_blocks *  N_LANES);
+  const aes_ghash_t *Hi =
+    (aes_ghash_t *) (ctx->Hi + NUM_HI - ghash_blocks * N_LANES);
 
-#if N == 64
   uword i;
+#if N == 64
   u64 byte_mask = _bextr_u64 (-1LL, 0, last_block_bytes);
-  if (ctx->operation == AES_GCM_OP_DECRYPT)
+  if (ctx->operation == AES_GCM_OP_DECRYPT && ctx->last)
     {
       /* during deccryption we hash 1..4 512-bit blocks from current round */
-      uword n_128bit_blocks = n * 4;
       /* if this is last round of decryption, we may have less than 4
 	 128-bit blocks in the last 512-bit data block, so we need to adjust
 	 Hi pointer accordingly */
-      if (ctx->last)
-	n_128bit_blocks += ((last_block_bytes + 15) >> 4) - 4;
+      uword n_128bit_blocks = (n - 1) * 4 + ((last_block_bytes + 15) / 16);
       Hi = (u8x64u *) (ctx->Hi + NUM_HI - n_128bit_blocks);
     }
 #endif
@@ -369,15 +368,19 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
   aes_gcm_enc_first_round (ctx, r, n);
   aes_gcm_enc_round (r, k[1], n);
 
-#if N == 64
-  /* load 4 blocks of data - decrypt round */
+  /* load data - decrypt round */
   if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       for (i = 0; i < n - ctx->last; i++)
 	d[i] = sv[i];
 
       if (ctx->last)
+#if N == 64
 	d[i] = u8x64_mask_load (u8x64_splat (0), (u8 *) (sv + i), byte_mask);
+#else
+	d[n - 1] =
+	  aes_gcm_load_partial ((u8 *) (sv + n - 1), last_block_bytes);
+#endif
     }
 
   /* GHASH multiply block 0 */
@@ -415,101 +418,37 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 	d[i] = sv[i];
 
       if (ctx->last)
+#if N == 64
 	d[i] = u8x64_mask_load (u8x64_splat (0), (u8 *) (sv + i), byte_mask);
-    }
-
-  /* AES rounds 8 and 9 */
-  aes_gcm_enc_round (r, k[8], n);
-  aes_gcm_enc_round (r, k[9], n);
-
-  /* AES last round(s) */
-  aes_gcm_enc_last_round (ctx, r, d, k, n);
-
-  /* store 4 blocks of data */
-  for (i = 0; i < n - ctx->last; i++)
-    dv[i] = d[i];
-
-  if (ctx->last)
-    u8x64_mask_store (d[i], dv + i, byte_mask);
-
-  /* GHASH reduce 1st step */
-  aes_gcm_ghash_reduce (ctx);
-
-  /* GHASH reduce 2nd step */
-  aes_gcm_ghash_reduce2 (ctx);
-
 #else
-  /* load data - decrypt round */
-  if (ctx->operation == AES_GCM_OP_DECRYPT)
-    {
-      for (int i = 0; i < n - ctx->last; i++)
-	d[i] = sv[i];
-
-      if (ctx->last)
-	d[n - 1] =
-	  aes_gcm_load_partial ((u8 *) (sv + n - 1), last_block_bytes);
+	d[n - 1] = aes_gcm_load_partial (sv + n - 1, last_block_bytes);
+#endif
     }
-
-  /* GHASH multiply block 1 */
-  if (with_ghash)
-    aes_gcm_ghash_mul_first (ctx, d[0], Hi[0]);
-
-  /* AES rounds 2 and 3 */
-  aes_gcm_enc_round (r, k[2], n);
-  aes_gcm_enc_round (r, k[3], n);
-
-  /* GHASH multiply block 2 */
-  if (with_ghash && gc++ < ghash_blocks)
-    aes_gcm_ghash_mul_next (ctx, (d[1]), Hi[1]);
-
-  /* AES rounds 4 and 5 */
-  aes_gcm_enc_round (r, k[4], n);
-  aes_gcm_enc_round (r, k[5], n);
-
-  /* GHASH multiply block 3 */
-  if (with_ghash && gc++ < ghash_blocks)
-    aes_gcm_ghash_mul_next (ctx, (d[2]), Hi[2]);
-
-  /* AES rounds 6 and 7 */
-  aes_gcm_enc_round (r, k[6], n);
-  aes_gcm_enc_round (r, k[7], n);
-
-  /* GHASH multiply block 4 */
-  if (with_ghash && gc++ < ghash_blocks)
-    aes_gcm_ghash_mul_next (ctx, (d[3]), Hi[3]);
 
   /* AES rounds 8 and 9 */
   aes_gcm_enc_round (r, k[8], n);
   aes_gcm_enc_round (r, k[9], n);
-
-  /* GHASH reduce 1st step */
-  if (with_ghash)
-    aes_gcm_ghash_reduce (ctx);
-
-  /* load data - encrypt round */
-  if (ctx->operation == AES_GCM_OP_ENCRYPT)
-    {
-      for (int i = 0; i < n - ctx->last; i++)
-	d[i] = sv[i];
-
-      if (ctx->last)
-	d[n - 1] = aes_gcm_load_partial (sv + n - 1, last_block_bytes);
-    }
-
-  /* GHASH reduce 2nd step */
-  if (with_ghash)
-    aes_gcm_ghash_reduce2 (ctx);
 
   /* AES last round(s) */
   aes_gcm_enc_last_round (ctx, r, d, k, n);
 
   /* store data */
-  for (int i = 0; i < n - ctx->last; i++)
+  for (i = 0; i < n - ctx->last; i++)
     dv[i] = d[i];
 
   if (ctx->last)
+#if N == 64
+    u8x64_mask_store (d[i], dv + i, byte_mask);
+#else
     aes_gcm_store_partial (d[n - 1], dv + n - 1, last_block_bytes);
 #endif
+
+  /* GHASH reduce 1st step */
+  aes_gcm_ghash_reduce (ctx);
+
+  /* GHASH reduce 2nd step */
+  if (with_ghash)
+    aes_gcm_ghash_reduce2 (ctx);
 
   /* GHASH final step */
   if (with_ghash)
