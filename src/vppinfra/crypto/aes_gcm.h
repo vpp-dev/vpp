@@ -27,7 +27,7 @@ typedef u32x16 aes_gcm_counter_t;
 #define aes_gcm_ghash_final(c)	       (c)->T = ghash4_final (&(c)->gd)
 #define aes_gcm_ghash_mul_next(c, d, h)                                       \
   ghash4_mul_next (&(c)->gd, aes_gcm_reflect (d), h)
-#elif defined(__VAES__)
+#elif defined(__VxAES__)
 #define N			       32
 typedef u8x32 aes_data_t;
 typedef u8x32u aes_ghash_t;
@@ -56,6 +56,7 @@ typedef u32x4 aes_gcm_counter_t;
 #define aes_gcm_ghash_mul_next(c, d, h)                                       \
   ghash_mul_next (&(c)->gd, aes_gcm_reflect (d), h)
 #endif
+#define N_LANES (N / 16)
 
 typedef enum
 {
@@ -342,18 +343,16 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
 	      uword n, uword last_block_bytes, int with_ghash)
 {
   const aes_data_t *k = ctx->Ke;
+  aes_data_t r[4];
 #if N == 64
   uword i, ghash_blocks, gc = 1;
   u8x64u *Hi, *inv = (u8x64u *) in, *outv = (u8x64u *) out;
-  u8x64 r[4];
   u64 byte_mask = _bextr_u64 (-1LL, 0, last_block_bytes);
 #elif N == 32
-  u8x32 r[4];
   u8x32u *inv = (u8x32u *) in, *outv = (u8x32u *) out;
   int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
   u8x32 *Hi = (u8x32 *) ctx->Hi + NUM_HI - ghash_blocks;
 #else
-  u8x16 r[n];
   int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
   u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - ghash_blocks;
   u8x16u *inv = (u8x16u *) in, *outv = (u8x16u *) out;
@@ -734,10 +733,14 @@ static_always_inline void
 aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 		    uword n_bytes)
 {
+  int i;
 #if N == 64
   int n_128bit_blocks;
+  uword n_lanes = (n_bytes + 15) / 16;
   u64 byte_mask = _bextr_u64 (-1LL, 0, n_bytes);
   n_128bit_blocks = (n_blocks - 1) * 4 + ((n_bytes + 15) >> 4);
+
+  fformat (stderr, "%u %u %u\n", n_lanes, n_128bit_blocks, n_bytes);
   u8x64u *Hi = (u8x64u *) (ctx->Hi + NUM_HI - n_128bit_blocks);
 
   d[n_blocks - 1] =
@@ -752,19 +755,44 @@ aes_gcm_ghash_last (aes_gcm_ctx_t *ctx, aes_data_t *d, int n_blocks,
 #endif
 
   aes_gcm_ghash_mul_first (ctx, d[0], Hi[0]);
+
+  ctx->Y0 ^= ((u8x16 *) ctx->Ke)[0];
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[1 * N_LANES]);
+
   if (n_blocks > 1)
     aes_gcm_ghash_mul_next (ctx, d[1], Hi[1]);
+
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[2 * N_LANES]);
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[3 * N_LANES]);
+
   if (n_blocks > 2)
     aes_gcm_ghash_mul_next (ctx, d[2], Hi[2]);
+
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[4 * N_LANES]);
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[5 * N_LANES]);
+
   if (n_blocks > 3)
     aes_gcm_ghash_mul_next (ctx, d[3], Hi[3]);
+
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[6 * N_LANES]);
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[7 * N_LANES]);
+
   aes_gcm_ghash_reduce (ctx);
+
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[8 * N_LANES]);
+  ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[9 * N_LANES]);
+
   aes_gcm_ghash_reduce2 (ctx);
+
+  for (i = 10 * N_LANES; i < N_LANES * ctx->rounds; i += N_LANES)
+    ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[i]);
+
   aes_gcm_ghash_final (ctx);
 
-  u8x16 r = (u8x16) ((u64x2){ ctx->data_bytes, ctx->aad_bytes } << 3);
+  ctx->Y0 = aes_enc_last_round (ctx->Y0, ((u8x16 *) ctx->Ke)[i]);
 
   ghash_data_t _gd, *gd = &_gd;
+  u8x16 r = (u8x16) ((u64x2){ ctx->data_bytes, ctx->aad_bytes } << 3);
   ghash_mul_first (gd, r ^ ctx->T, ctx->Hi[NUM_HI - 1]);
   ghash_reduce (gd);
   ghash_reduce2 (gd);
@@ -775,29 +803,35 @@ static_always_inline void
 aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
 {
   aes_data_t d[4];
+
   if (n_left == 0)
-    return;
+    {
+      int i;
+      ctx->Y0 ^= ((u8x16 *) ctx->Ke)[0];
+      for (i = N_LANES; i < N_LANES * ctx->rounds; i += N_LANES)
+	ctx->Y0 = aes_enc_round (ctx->Y0, ((u8x16 *) ctx->Ke)[i]);
+      ctx->Y0 = aes_enc_last_round (ctx->Y0, ((u8x16 *) ctx->Ke)[i]);
+      return;
+    }
 
   if (n_left < 4 * N)
     {
       ctx->last = 1;
       if (n_left > 3 * N)
 	{
-	  n_left -= 3 * N;
-	  aes_gcm_calc (ctx, d, src, dst, 4, n_left, /* with_ghash */ 0);
-	  aes_gcm_ghash_last (ctx, d, 4, n_left);
+	  aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 * N, /* with_ghash */ 0);
+	  aes_gcm_ghash_last (ctx, d, 4, n_left - 3 * N);
 	}
       else if (n_left > 2 * N)
 	{
-	  n_left -= 2 * N;
-	  aes_gcm_calc (ctx, d, src, dst, 3, n_left, /* with_ghash */ 0);
-	  aes_gcm_ghash_last (ctx, d, 3, n_left);
+	  aes_gcm_calc (ctx, d, src, dst, 3, n_left - 2 * N,
+			/* with_ghash */ 0);
+	  aes_gcm_ghash_last (ctx, d, 3, n_left - 2 * N);
 	}
       else if (n_left > N)
 	{
-	  n_left -= N;
-	  aes_gcm_calc (ctx, d, src, dst, 2, n_left, /* with_ghash */ 0);
-	  aes_gcm_ghash_last (ctx, d, 2, n_left);
+	  aes_gcm_calc (ctx, d, src, dst, 2, n_left - N, /* with_ghash */ 0);
+	  aes_gcm_ghash_last (ctx, d, 2, n_left - N);
 	}
       else
 	{
@@ -840,21 +874,18 @@ aes_gcm_enc (aes_gcm_ctx_t *ctx, const u8 *src, u8 *dst, u32 n_left)
 
   if (n_left > 3 * N)
     {
-      n_left -= 3 * N;
-      aes_gcm_calc (ctx, d, src, dst, 4, n_left, /* with_ghash */ 1);
-      aes_gcm_ghash_last (ctx, d, 4, n_left);
+      aes_gcm_calc (ctx, d, src, dst, 4, n_left - 3 *N, /* with_ghash */ 1);
+      aes_gcm_ghash_last (ctx, d, 4, n_left - 3 * N);
     }
   else if (n_left > 2 * N)
     {
-      n_left -= 2 * N;
-      aes_gcm_calc (ctx, d, src, dst, 3, n_left, /* with_ghash */ 1);
-      aes_gcm_ghash_last (ctx, d, 3, n_left);
+      aes_gcm_calc (ctx, d, src, dst, 3, n_left - 2 * N, /* with_ghash */ 1);
+      aes_gcm_ghash_last (ctx, d, 3, n_left - 2 * N);
     }
   else if (n_left > N)
     {
-      n_left -= N;
-      aes_gcm_calc (ctx, d, src, dst, 2, n_left, /* with_ghash */ 1);
-      aes_gcm_ghash_last (ctx, d, 2, n_left);
+      aes_gcm_calc (ctx, d, src, dst, 2, n_left - N, /* with_ghash */ 1);
+      aes_gcm_ghash_last (ctx, d, 2, n_left - N);
     }
   else
     {
@@ -900,7 +931,6 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
 	 u32 data_bytes, u32 aad_bytes, u8 tag_len,
 	 const aes_gcm_key_data_t *kd, int aes_rounds, aes_gcm_op_t op)
 {
-  int i;
   u8x16 r;
   u8 *addt = (u8 *) aad;
 
@@ -930,15 +960,6 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
   ctx->Y = ctx->Y0 + (u32x4){ 0, 0, 0, 1 << 24 };
 #endif
 
-  /* encrypt counter 0 E(Y0, k) */
-  //if (op != AES_GCM_OP_ENCRYPT)
-    {
-      ctx->Y0 ^= kd->Ke[0];
-      for (i = 1; i < aes_rounds; i += 1)
-	ctx->Y0 = aes_enc_round (ctx->Y0, kd->Ke[i]);
-      ctx->Y0 = aes_enc_last_round (ctx->Y0, kd->Ke[aes_rounds]);
-    }
-
   /* calculate ghash for AAD */
   aes_gcm_ghash (ctx, addt, aad_bytes);
 
@@ -955,6 +976,15 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
     {
       r = (u8x16) ((u64x2){ data_bytes, aad_bytes } << 3);
       ctx->T = ghash_mul (r ^ ctx->T, kd->Hi[NUM_HI - 1]);
+    }
+
+  /* encrypt counter 0 E(Y0, k) */
+  if (op != AES_GCM_OP_ENCRYPT)
+    {
+      ctx->Y0 ^= kd->Ke[0];
+      for (int i = 1; i < ctx->rounds; i += 1)
+	ctx->Y0 = aes_enc_round (ctx->Y0, kd->Ke[i]);
+      ctx->Y0 = aes_enc_last_round (ctx->Y0, kd->Ke[ctx->rounds]);
     }
 
   /* final tag is */
