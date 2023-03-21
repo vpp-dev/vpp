@@ -931,7 +931,7 @@ aes_gcm (const u8 *src, u8 *dst, const u8 *aad, u8 *ivp, u8 *tag,
 #endif
 
   /* encrypt counter 0 E(Y0, k) */
-  if (op != AES_GCM_OP_ENCRYPT)
+  //if (op != AES_GCM_OP_ENCRYPT)
     {
       ctx->Y0 ^= kd->Ke[0];
       for (i = 1; i < aes_rounds; i += 1)
