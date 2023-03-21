@@ -344,34 +344,17 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 {
   aes_data_t r[4];
   const aes_data_t *k = ctx->Ke;
-  //const aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - N_LANES * 8);
   const aes_datau_t *sv = (aes_datau_t *) src;
   aes_datau_t *dv = (aes_datau_t *) dst;
+  uword ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
+  const aes_ghash_t * Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - ghash_blocks *  N_LANES);
 
 #if N == 64
-  uword i, ghash_blocks, gc = 1;
-  u8x64u *Hi;
+  uword i;
   u64 byte_mask = _bextr_u64 (-1LL, 0, last_block_bytes);
-#elif N == 32
-  int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
-  u8x32 *Hi = (u8x32 *) ctx->Hi + NUM_HI - ghash_blocks;
-#else
-  int ghash_blocks = (ctx->operation == AES_GCM_OP_ENCRYPT) ? 4 : n, gc = 1;
-  u8x16 *Hi = (u8x16 *) ctx->Hi + NUM_HI - ghash_blocks;
-#endif
-
-#if N == 64
-  if (ctx->operation == AES_GCM_OP_ENCRYPT)
-    {
-      /* during encryption we either hash four 512-bit blocks from previous
-	 round or we don't hash at all */
-      ghash_blocks = 4;
-      Hi = (u8x64u *) (ctx->Hi + NUM_HI - ghash_blocks * 4);
-    }
-  else
+  if (ctx->operation == AES_GCM_OP_DECRYPT)
     {
       /* during deccryption we hash 1..4 512-bit blocks from current round */
-      ghash_blocks = n;
       uword n_128bit_blocks = n * 4;
       /* if this is last round of decryption, we may have less than 4
 	 128-bit blocks in the last 512-bit data block, so we need to adjust
@@ -463,7 +446,8 @@ aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 	d[i] = sv[i];
 
       if (ctx->last)
-	d[n - 1] = aes_gcm_load_partial ((u8 *) (sv + n - 1), last_block_bytes);
+	d[n - 1] =
+	  aes_gcm_load_partial ((u8 *) (sv + n - 1), last_block_bytes);
     }
 
   /* GHASH multiply block 1 */
