@@ -339,11 +339,15 @@ aes_gcm_enc_last_round (aes_gcm_ctx_t *ctx, aes_data_t *r, aes_data_t *d,
 }
 
 static_always_inline void
-aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *in, u8 *out,
+aes_gcm_calc (aes_gcm_ctx_t *ctx, aes_data_t *d, const u8 *src, u8 *dst,
 	      uword n, uword last_block_bytes, int with_ghash)
 {
-  const aes_data_t *k = ctx->Ke;
   aes_data_t r[4];
+  const aes_data_t *k = ctx->Ke;
+  const aes_ghash_t *Hi = (aes_ghash_t *) (ctx->Hi + NUM_HI - N_LANES * 8);
+  const aes_datau_t *sv = (aes_datau_t *) src;
+  aes_datau_t *dv = (aes_datau_t *) dst;
+
 #if N == 64
   uword i, ghash_blocks, gc = 1;
   u8x64u *Hi, *inv = (u8x64u *) in, *outv = (u8x64u *) out;
