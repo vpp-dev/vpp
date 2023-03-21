@@ -21,6 +21,7 @@ typedef u8x64u aes_datau_t;
 typedef u32x16 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x64_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x64_store_partial (v, (u8 *) (p), n)
+#define aes_gcm_reflect(r)	       u8x64_reflect_u8x16 (r)
 #elif defined(__VxAES__)
 #define N			       32
 typedef u8x32 aes_data_t;
@@ -29,6 +30,7 @@ typedef u8x32u aes_datau_t;
 typedef u32x8 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x32_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x32_store_partial (v, (u8 *) (p), n)
+#define aes_gcm_reflect(r)	       u8x32_reflect_u8x16 (r)
 #else
 #define N			       16
 typedef u8x16 aes_data_t;
@@ -37,6 +39,7 @@ typedef u8x16u aes_datau_t;
 typedef u32x4 aes_gcm_counter_t;
 #define aes_gcm_load_partial(p, n)     u8x16_load_partial ((u8 *) (p), n)
 #define aes_gcm_store_partial(v, p, n) u8x16_store_partial (v, (u8 *) (p), n)
+#define aes_gcm_reflect(r)	       u8x16_reflect(r)
 #endif
 
 typedef struct
@@ -77,24 +80,24 @@ aes_gcm_ghash_mul_first (aes_gcm_ctx_t *ctx, aes_data_t data, aes_ghash_t H)
 #if N == 64
   u8x64 tag4 = {};
   tag4 = u8x64_insert_u8x16 (tag4, ctx->T, 0);
-  ghash4_mul_first (&ctx->gd, u8x64_reflect_u8x16 (data) ^ tag4, H);
+  ghash4_mul_first (&ctx->gd, aes_gcm_reflect (data) ^ tag4, H);
 #elif N == 32
   u8x32 tag2 = {};
   tag2 = u8x32_insert_lo (tag2, ctx->T);
-  ghash2_mul_first (&ctx->gd, u8x32_reflect_u8x16 (data) ^ tag2, H);
+  ghash2_mul_first (&ctx->gd, aes_gcm_reflect (data) ^ tag2, H);
 #else
-  ghash_mul_first (&ctx->gd, u8x16_reflect (data) ^ ctx->T, H);
+  ghash_mul_first (&ctx->gd, aes_gcm_reflect (data) ^ ctx->T, H);
 #endif
 }
 static_always_inline void
 aes_gcm_ghash_mul_next (aes_gcm_ctx_t *ctx, aes_data_t data, aes_ghash_t H)
 {
 #if N == 64
-  ghash4_mul_next (&ctx->gd, u8x64_reflect_u8x16 (data), H);
+  ghash4_mul_next (&ctx->gd, aes_gcm_reflect (data), H);
 #elif N == 32
-  ghash2_mul_next (&ctx->gd, u8x32_reflect_u8x16 (data), H);
+  ghash2_mul_next (&ctx->gd, aes_gcm_reflect (data), H);
 #else
-  ghash_mul_next (&ctx->gd, u8x16_reflect (data), H);
+  ghash_mul_next (&ctx->gd, aes_gcm_reflect (data), H);
 #endif
 }
 static_always_inline void
@@ -241,13 +244,13 @@ aes_gcm_enc_first_round (aes_gcm_ctx_t *ctx, aes_data_t *r, uword n_blocks)
 
   if (n_blocks == 4 && PREDICT_FALSE ((u8) ctx->counter == 242))
     {
-      u32x16 Yr = (u32x16) u8x64_reflect_u8x16 ((u8x64) ctx->Y);
+      u32x16 Yr = (u32x16) aes_gcm_reflect ((u8x64) ctx->Y);
 
       for (; i < n_blocks; i++)
 	{
 	  r[i] = k ^ (u8x64) ctx->Y;
 	  Yr += ctr_4444;
-	  ctx->Y = (u32x16) u8x64_reflect_u8x16 ((u8x64) Yr);
+	  ctx->Y = (u32x16) aes_gcm_reflect ((u8x64) Yr);
 	}
     }
   else
@@ -277,13 +280,13 @@ aes_gcm_enc_first_round (aes_gcm_ctx_t *ctx, aes_data_t *r, uword n_blocks)
 
   if (n_blocks == 4 && PREDICT_FALSE ((u8) ctx->counter == 242))
     {
-      u32x8 Yr = (u32x8) u8x32_reflect_u8x16 ((u8x32) ctx->Y);
+      u32x8 Yr = (u32x8) aes_gcm_reflect ((u8x32) ctx->Y);
 
       for (; i < n_blocks; i++)
 	{
 	  r[i] = k ^ (u8x32) ctx->Y;
 	  Yr += ctr_44;
-	  ctx->Y = (u32x8) u8x32_reflect_u8x16 ((u8x32) Yr);
+	  ctx->Y = (u32x8) aes_gcm_reflect ((u8x32) Yr);
 	}
     }
   else
