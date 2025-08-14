@@ -4,7 +4,7 @@ go 1.22.5
 
 require (
 	github.com/cilium/cilium v1.15.7
-	github.com/docker/docker v27.1.1+incompatible
+	github.com/docker/docker v28.0.0+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/edwarnicke/exechelper v1.0.3
 	github.com/onsi/ginkgo/v2 v2.17.2
